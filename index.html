@@ -515,10 +515,10 @@
     <h2>Enter Group Code</h2>
     <p>This is a private game. Enter the code shared by your group admin to continue.</p>
     <input type="text" id="join-code-input" placeholder="CODE" maxlength="20"
-      onkeydown="if(event.key==='Enter')checkJoinCode()"
-      oninput="this.value=this.value.toUpperCase();document.getElementById('join-error').textContent=''">
+     
+      data-clearerror="join-error">
     <div class="join-error" id="join-error"></div>
-    <button class="btn btn-gold" onclick="checkJoinCode()">Join Game</button>
+    <button class="btn btn-gold" data-action="checkJoinCode">Join Game</button>
     <div class="join-hint">Don't have a code? Ask your group admin.</div>
   </div>
 </div>
@@ -557,7 +557,7 @@
           <label>Supabase Anon Key</label>
           <input type="text" id="sb-key" placeholder="eyJhbGci..." oninput="saveCfg()">
           <div style="margin-top:12px">
-            <button class="btn btn-dark" onclick="testSupabase()">Test Connection</button>
+            <button class="btn btn-dark" data-action="testSupabase">Test Connection</button>
             <span id="sb-status" style="margin-left:10px;font-size:13px;font-family:'Barlow Condensed';letter-spacing:0.5px"></span>
           </div>
         </div>
@@ -569,7 +569,7 @@
           <label>API-Football Key</label>
           <input type="text" id="api-key" placeholder="your-api-football-key" oninput="saveCfg()">
           <div style="margin-top:12px">
-            <button class="btn btn-dark" onclick="testApiFootball()">Test API</button>
+            <button class="btn btn-dark" data-action="testApiFootball">Test API</button>
             <span id="api-status" style="margin-left:10px;font-size:13px;font-family:'Barlow Condensed';letter-spacing:0.5px"></span>
           </div>
         </div>
@@ -585,14 +585,14 @@
             <option value="admin">Admin (can enter results)</option>
           </select>
           <div style="margin-top:12px">
-            <button class="btn btn-gold" onclick="saveProfile()">Save Profile</button>
+            <button class="btn btn-gold" data-action="saveProfile">Save Profile</button>
           </div>
         </div>
         <div class="card">
           <h2>👥 <span class="accent">Players</span> Online</h2>
           <div id="players-online" class="empty-state" style="padding:20px">Connect Supabase to see players.</div>
           <div style="margin-top:12px">
-            <button class="btn btn-outline btn-sm" onclick="loadPlayers()">↻ Refresh</button>
+            <button class="btn btn-outline btn-sm" data-action="loadPlayers">↻ Refresh</button>
           </div>
         </div>
       </div>
@@ -631,7 +631,7 @@
         <select id="result-group-filter" onchange="renderMatchResults()">
           <option value="">All Groups</option>
         </select>
-        <button class="btn btn-green btn-sm" onclick="fetchLiveScores()" id="fetch-scores-btn">🔄 Fetch Live Scores</button>
+        <button class="btn btn-green btn-sm" data-action="fetchLiveScores" id="fetch-scores-btn">🔄 Fetch Live Scores</button>
         <span id="fetch-status" style="font-size:12px;color:var(--muted);font-family:'Barlow Condensed'"></span>
       </div>
       <div id="matches-results-list"></div>
@@ -654,7 +654,7 @@
             <input type="text" id="admin-winner" placeholder="Winning team...">
           </div>
         </div>
-        <button class="btn btn-gold" onclick="saveOfficialFinalists()">Save Finalists</button>
+        <button class="btn btn-gold" data-action="saveOfficialFinalists">Save Finalists</button>
         <div id="official-finalists-display" style="margin-top:14px;margin-bottom:20px"></div>
         <h2 style="border-top:1px solid var(--border);padding-top:16px">🏅 Official Award Winners</h2>
         <div class="info-box">Enter the official award winners once announced — this scores all players' award predictions.</div>
@@ -682,7 +682,7 @@
           </div>
         </div>
         <div style="margin-top:16px">
-          <button class="btn btn-gold" onclick="saveOfficialAwards()">Save Award Winners</button>
+          <button class="btn btn-gold" data-action="saveOfficialAwards">Save Award Winners</button>
         </div>
       </div>
     </div>
@@ -704,8 +704,8 @@
         <label style="margin-top:0">Predicting as</label>
         <div style="font-family:'Barlow Condensed';font-size:15px;font-weight:700;letter-spacing:0.5px;padding:9px 0" id="pred-player-display">—</div>
       </div>
-      <button class="btn btn-outline btn-sm" onclick="loadPredictions()" style="margin-bottom:2px">↻ Refresh</button>
-      <button class="btn btn-gold btn-sm" onclick="loadMyAwards().then(a=>openAwardsModal(a))" style="margin-bottom:2px">🏅 My Award Picks</button>
+      <button class="btn btn-outline btn-sm" data-action="loadPredictions" style="margin-bottom:2px">↻ Refresh</button>
+      <button class="btn btn-gold btn-sm" data-action="openMyAwards" style="margin-bottom:2px">🏅 My Award Picks</button>
     </div>
     <div class="card" style="margin-bottom:16px">
       <h2>🏅 <span class="accent">My</span> Award Predictions</h2>
@@ -727,7 +727,7 @@
   <div class="page" id="page-leaderboard">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
       <div class="section-title" style="margin:0">🏅 Standings</div>
-      <button class="btn btn-outline btn-sm" onclick="renderLeaderboard()">↻ Refresh</button>
+      <button class="btn btn-outline btn-sm" data-action="renderLeaderboard">↻ Refresh</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
       <div id="leaderboard-content"><div class="empty-state" style="padding:40px">Connect Supabase to see standings.</div></div>
@@ -754,8 +754,8 @@
       <div class="card" style="max-width:380px;margin:40px auto;text-align:center">
         <h2 style="justify-content:center">🔐 Admin Access</h2>
         <p style="color:var(--muted);font-size:14px;margin-bottom:16px">Enter the admin password to unlock result entry and data management.</p>
-        <input type="password" id="admin-pw-input" placeholder="Password..." onkeydown="if(event.key==='Enter')checkAdmin()" style="margin-bottom:12px">
-        <button class="btn btn-gold" style="width:100%" onclick="checkAdmin()">Unlock</button>
+        <input type="password" id="admin-pw-input" placeholder="Password..." style="margin-bottom:12px">
+        <button class="btn btn-gold" style="width:100%" data-action="checkAdmin">Unlock</button>
         <p style="margin-top:12px;font-size:12px;color:var(--muted)">Default: <strong>admin123</strong></p>
       </div>
     </div>
@@ -765,7 +765,7 @@
           <h2>🔑 Change Admin Password</h2>
           <label>New Admin Password</label>
           <input type="text" id="new-admin-pw" placeholder="New password...">
-          <div style="margin-top:12px"><button class="btn btn-gold" onclick="changeAdminPw()">Save Password</button></div>
+          <div style="margin-top:12px"><button class="btn btn-gold" data-action="changeAdminPw">Save Password</button></div>
         </div>
         <div class="card">
           <h2>🔐 Group Join Code</h2>
@@ -773,16 +773,16 @@
           <label>Current Join Code</label>
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
             <input type="text" id="current-join-code" readonly style="font-family:'Bebas Neue';font-size:20px;letter-spacing:4px;text-align:center;background:#f0f3f8">
-            <button class="btn btn-outline btn-sm" onclick="copyJoinCode()">Copy</button>
+            <button class="btn btn-outline btn-sm" data-action="copyJoinCode">Copy</button>
           </div>
           <label>New Join Code</label>
           <input type="text" id="new-join-code" placeholder="e.g. GOALS2026" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
-          <div style="margin-top:12px"><button class="btn btn-gold" onclick="changeJoinCode()">Update Code</button></div>
+          <div style="margin-top:12px"><button class="btn btn-gold" data-action="changeJoinCode">Update Code</button></div>
         </div>
         <div class="card">
           <h2>📤 Export Data</h2>
           <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Download a full JSON backup of all predictions and results.</p>
-          <button class="btn btn-outline" onclick="exportData()">Export JSON</button>
+          <button class="btn btn-outline" data-action="exportData">Export JSON</button>
         </div>
       </div>
     </div>
@@ -1116,8 +1116,8 @@ function renderMatchResults(){
           <span class="score-sep">–</span>
           <input type="number" min="0" max="99" id="ra-${m.id}" value="${r?r.away:''}" placeholder="0" style="width:50px">
         </div>
-        <button class="btn btn-gold btn-sm" onclick="saveResult('${m.id}')">Save</button>
-        ${r ? `<button class="btn btn-outline btn-sm" onclick="clearResult('${m.id}')">Clear</button>` : ''}
+        <button class="btn btn-gold btn-sm" data-action="saveResult" data-id="${m.id}">Save</button>
+        ${r ? `<button class="btn btn-outline btn-sm" data-action="clearResult" data-id="${m.id}">Clear</button>` : ''}
         <span class="match-meta" style="margin-left:auto">${r?'✅ Result saved':'⏳ Pending'}</span>
       </div>
     </div>`;
@@ -1615,7 +1615,7 @@ function renderAwardsSummary(awards){
   const el = document.getElementById('awards-summary');
   if(!el) return;
   if(!awards || !Object.values(awards).some(v=>v)){
-    el.innerHTML='<div style="color:var(--muted);font-size:13px">No award picks yet. <button class="btn btn-outline btn-sm" onclick="openAwardsModal()">Add Picks</button></div>';
+    el.innerHTML='<div style="color:var(--muted);font-size:13px">No award picks yet. <button class="btn btn-outline btn-sm" data-action="openMyAwards">Add Picks</button></div>';
     return;
   }
   let html = '<div class="awards-summary">';
@@ -1623,7 +1623,7 @@ function renderAwardsSummary(awards){
     if(awards[k]) html += `<span class="award-badge">${AWARD_ICONS[k]} ${AWARD_LABELS[k]}: <strong>${awards[k]}</strong></span>`;
   });
   html += '</div>';
-  html += `<div style="margin-top:10px"><button class="btn btn-outline btn-sm" onclick="loadMyAwards().then(a=>openAwardsModal(a))">✏️ Edit Picks</button></div>`;
+  html += `<div style="margin-top:10px"><button class="btn btn-outline btn-sm" data-action="openMyAwards">✏️ Edit Picks</button></div>`;
   el.innerHTML = html;
 }
 
@@ -1690,22 +1690,73 @@ populateGroupFilter('sched-group-filter');
 loadAllResults().then(()=>{ renderSchedule(); });
 loadPlayers();
 
-// ---- Event delegation for nav ----
-document.getElementById('main-nav').addEventListener('click', function(e){
-  const btn = e.target.closest('button[data-page]');
-  if(btn) showPage(btn.dataset.page);
+// ---- Master event delegation - handles ALL button clicks ----
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('button');
+  if(!btn) return;
+
+  // Nav buttons
+  if(btn.dataset.page){ showPage(btn.dataset.page); return; }
+
+  // Tab buttons
+  if(btn.dataset.tab){
+    const tabs = btn.closest('.tabs');
+    if(tabs){
+      const page = tabs.id.replace('tabs-','');
+      showTab(page, btn.dataset.tab);
+      if(btn.dataset.onshow && window[btn.dataset.onshow]) window[btn.dataset.onshow]();
+    }
+    return;
+  }
+
+  // Action buttons
+  const action = btn.dataset.action;
+  if(!action) return;
+
+  e.preventDefault();
+  switch(action){
+    case 'checkJoinCode':      checkJoinCode(); break;
+    case 'testSupabase':       testSupabase(); break;
+    case 'testApiFootball':    testApiFootball(); break;
+    case 'saveProfile':        saveProfile(); break;
+    case 'loadPlayers':        loadPlayers(); break;
+    case 'fetchLiveScores':    fetchLiveScores(); break;
+    case 'saveOfficialFinalists': saveOfficialFinalists(); break;
+    case 'saveOfficialAwards': saveOfficialAwards(); break;
+    case 'loadPredictions':    loadPredictions(); break;
+    case 'openMyAwards':       loadMyAwards().then(a=>openAwardsModal(a)); break;
+    case 'renderLeaderboard':  renderLeaderboard(); break;
+    case 'checkAdmin':         checkAdmin(); break;
+    case 'changeAdminPw':      changeAdminPw(); break;
+    case 'copyJoinCode':       copyJoinCode(); break;
+    case 'changeJoinCode':     changeJoinCode(); break;
+    case 'exportData':         exportData(); break;
+    case 'closeAwardsModal':   closeAwardsModal(); break;
+    case 'saveAwardPredictions': saveAwardPredictions(); break;
+    case 'saveResult':
+      if(btn.dataset.id) saveResult(btn.dataset.id); break;
+    case 'clearResult':
+      if(btn.dataset.id) clearResult(btn.dataset.id); break;
+  }
 });
 
-// ---- Event delegation for tabs ----
-document.addEventListener('click', function(e){
-  const btn = e.target.closest('.tab-btn[data-tab]');
-  if(!btn) return;
-  const tabs = btn.closest('.tabs');
-  if(!tabs) return;
-  const page = tabs.id.replace('tabs-','');
-  showTab(page, btn.dataset.tab);
-  if(btn.dataset.onshow && window[btn.dataset.onshow]) window[btn.dataset.onshow]();
+// ---- Join code: also handle Enter key ----
+document.getElementById('join-code-input').addEventListener('keydown', function(e){
+  if(e.key === 'Enter') checkJoinCode();
 });
+document.getElementById('admin-pw-input').addEventListener('keydown', function(e){
+  if(e.key === 'Enter') checkAdmin();
+});
+
+// Clear error on join code input + uppercase
+document.getElementById('join-code-input').addEventListener('input', function(){
+  this.value = this.value.toUpperCase();
+  document.getElementById('join-error').textContent = '';
+});
+
+// Uppercase new-join-code input
+const njc = document.getElementById('new-join-code');
+if(njc) njc.addEventListener('input', function(){ this.value = this.value.toUpperCase(); });
 </script>
 
 <!-- AWARDS REGISTRATION MODAL -->
@@ -1742,8 +1793,8 @@ document.addEventListener('click', function(e){
       <input type="text" id="aw-young" placeholder="e.g. Lamine Yamal">
     </div>
     <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeAwardsModal()">Skip for now</button>
-      <button class="btn btn-gold" onclick="saveAwardPredictions()">Save My Picks ✓</button>
+      <button class="btn btn-outline" data-action="closeAwardsModal">Skip for now</button>
+      <button class="btn btn-gold" data-action="saveAwardPredictions">Save My Picks ✓</button>
     </div>
   </div>
 </div>

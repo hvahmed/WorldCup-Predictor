@@ -402,6 +402,16 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
         <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Download a full JSON backup.</p>
         <button type="button" class="btn btn-outline" id="btn-export">Export JSON</button>
       </div>
+      <div class="card" style="border-color:#fca5a5">
+        <div class="card-title" style="color:var(--red)">🗑️ Clear Test Data</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:6px">Delete all predictions and results from the database. Use this to reset after testing before your group starts for real.</p>
+        <p style="font-size:12px;color:var(--red);margin-bottom:14px">⚠️ This cannot be undone.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn btn-danger" id="btn-clear-preds">Clear All Predictions</button>
+          <button type="button" class="btn btn-danger" id="btn-clear-results">Clear All Results</button>
+          <button type="button" class="btn btn-danger" id="btn-clear-all">Clear Everything</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1102,8 +1112,16 @@ async function loadMyPredictions() {
   const data = await sbGet('predictions', '?player_name=eq.' + encodeURIComponent(profile.name));
   // Merge with any locally staged predictions (don't wipe unsaved changes)
   var fresh = {};
-  (data || []).forEach(function(p) { fresh[p.match_id] = { home: p.home_score, away: p.away_score }; });
-  myPredictions = Object.assign(fresh, myPredictions); // local staged takes priority
+  (data || []).forEach(function(p) { fresh[p.match_id] = { home: p.home_score, away: p.away_score, _saved: true }; });
+  // Merge: DB data is base, but keep any local unsaved changes on top
+  Object.keys(myPredictions).forEach(function(mid) {
+    var local = myPredictions[mid];
+    // Only keep local value if it was never confirmed saved
+    if (local && local._saved === false) {
+      fresh[mid] = local;
+    }
+  });
+  myPredictions = fresh;
   const awards = await loadMyAwards();
   renderAwardsSummary(awards);
   renderMyPredictions(awards);
@@ -1212,21 +1230,36 @@ function renderMyPredictions(awards) {
         '</div>' +
         teamHtml(m.away, 'away') +
       '</div>' +
-      '<div>' + statusBadge + '</div>' +
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+        statusBadge +
+        (!locked ? '<span class="save-status" id="ss-'+m.id+'" style="font-family:'Barlow Condensed';font-size:11px;letter-spacing:1px;color:var(--muted)"></span>' : '') +
+      '</div>' +
     '</div>';
   }).join('');
 
   document.getElementById('my-preds-list').innerHTML = html;
 
-  // Attach input listeners for predictions (only for unlocked matches)
+  // Attach input listeners — use 'input' event so mobile triggers correctly
   sortedMatches.forEach(function(m) {
     if (isKickedOff(m) || results[m.id]) return; // skip locked
-    ['home','away'].forEach(function(side) {
-      const inp = document.getElementById((side==='home'?'ph-':'pa-') + m.id);
-      if (inp) {
-        inp.addEventListener('change', function() { savePrediction(m.id, side, this.value); });
-      }
-    });
+    var hInp = document.getElementById('ph-' + m.id);
+    var aInp = document.getElementById('pa-' + m.id);
+    function onAnyInput() {
+      var hVal = hInp ? hInp.value : '';
+      var aVal = aInp ? aInp.value : '';
+      // Mark as unsaved immediately so we can warn on tab close
+      if (!myPredictions[m.id]) myPredictions[m.id] = { home: null, away: null };
+      myPredictions[m.id]._saved = false;
+      savePrediction(m.id, hVal, aVal);
+    }
+    if (hInp) {
+      hInp.addEventListener('input', onAnyInput);
+      hInp.addEventListener('blur', onAnyInput);
+    }
+    if (aInp) {
+      aInp.addEventListener('input', onAnyInput);
+      aInp.addEventListener('blur', onAnyInput);
+    }
   });
 
   // Auto-refresh predictions page every 60 seconds to update countdowns & locks
@@ -1242,23 +1275,47 @@ function renderMyPredictions(awards) {
   }, 60000);
 }
 
-async function savePrediction(matchId, side, val) {
+async function savePrediction(matchId, hVal, aVal) {
   if (!profile.name || !cfg.sbUrl) return;
-  // Double-check kickoff hasn't passed since page loaded
   const match = MATCHES.find(function(m) { return m.id === matchId; });
   if (match && isKickedOff(match)) { toast('Match has kicked off — prediction locked', true); return; }
+
+  const hScore = hVal === '' || hVal === undefined || hVal === null ? null : parseInt(hVal);
+  const aScore = aVal === '' || aVal === undefined || aVal === null ? null : parseInt(aVal);
+
+  // Update local state
   if (!myPredictions[matchId]) myPredictions[matchId] = { home: null, away: null };
-  myPredictions[matchId][side] = val === '' ? null : parseInt(val);
+  myPredictions[matchId].home = hScore;
+  myPredictions[matchId].away = aScore;
+
+  var ssEl = document.getElementById('ss-' + matchId);
+  if (ssEl) { ssEl.textContent = '💾 Saving...'; ssEl.style.color = 'var(--muted)'; }
+
+  // Cancel any pending save for this match
   clearTimeout(predTimers[matchId]);
+
+  // Short debounce (300ms) so rapid typing doesn't flood the API
   predTimers[matchId] = setTimeout(async function() {
-    const p = myPredictions[matchId];
-    await sbUpsert('predictions', {
-      player_name: profile.name, match_id: matchId,
-      home_score: p.home, away_score: p.away,
-      updated_at: new Date().toISOString()
-    }, 'player_name,match_id');
-    toast('Prediction saved ✓');
-  }, 800);
+    try {
+      var resp = await sbUpsert('predictions', {
+        player_name: profile.name, match_id: matchId,
+        home_score: hScore, away_score: aScore,
+        updated_at: new Date().toISOString()
+      }, 'player_name,match_id');
+      if (resp && (resp.ok || resp.status === 201 || resp.status === 200 || resp.status === 204)) {
+        if (ssEl) { ssEl.textContent = '✅ Saved'; ssEl.style.color = 'var(--green)'; }
+        setTimeout(function() { if (ssEl) ssEl.textContent = ''; }, 3000);
+        // Mark this match as confirmed saved in DB
+        myPredictions[matchId]._saved = true;
+      } else {
+        if (ssEl) { ssEl.textContent = '❌ Save failed — try again'; ssEl.style.color = 'var(--red)'; }
+        myPredictions[matchId]._saved = false;
+      }
+    } catch(e) {
+      if (ssEl) { ssEl.textContent = '❌ No connection — will retry'; ssEl.style.color = 'var(--red)'; }
+      myPredictions[matchId]._saved = false;
+    }
+  }, 300);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1424,6 +1481,36 @@ async function exportData() {
 }
 
 // ═══════════════════════════════════════════════════════
+// CLEAR TEST DATA
+// ═══════════════════════════════════════════════════════
+async function clearAllPredictions() {
+  if (!confirm('Delete ALL predictions from the database? This cannot be undone.')) return;
+  await sbDelete('predictions', '?id=neq.00000000-0000-0000-0000-000000000000'); // delete all rows
+  myPredictions = {};
+  toast('All predictions cleared ✅');
+}
+
+async function clearAllResults() {
+  if (!confirm('Delete ALL match results from the database? This cannot be undone.')) return;
+  await sbDelete('results', '?match_id=neq.none');
+  results = {};
+  toast('All results cleared ✅');
+}
+
+async function clearEverything() {
+  if (!confirm('Clear ALL predictions, results and players? This completely resets the app. Cannot be undone.')) return;
+  if (!confirm('Are you absolutely sure? This deletes everything.')) return;
+  await sbDelete('predictions', '?id=neq.00000000-0000-0000-0000-000000000000');
+  await sbDelete('results', '?match_id=neq.none');
+  await sbDelete('players', '?id=neq.00000000-0000-0000-0000-000000000000');
+  await sbDelete('settings', '?key=neq.none');
+  myPredictions = {};
+  results = {};
+  allPlayers = [];
+  toast('Everything cleared — fresh start! ✅');
+}
+
+// ═══════════════════════════════════════════════════════
 // TOAST
 // ═══════════════════════════════════════════════════════
 function toast(msg, isError) {
@@ -1438,6 +1525,16 @@ function toast(msg, isError) {
 // ═══════════════════════════════════════════════════════
 // ALL EVENT LISTENERS — defined once, no inline handlers
 // ═══════════════════════════════════════════════════════
+// Warn user if they try to leave with unsaved predictions
+window.addEventListener('beforeunload', function(e) {
+  var hasUnsaved = Object.values(myPredictions).some(function(p) { return p && p._saved === false; });
+  var hasPending = Object.keys(predTimers).some(function(k) { return predTimers[k]; });
+  if (hasUnsaved || hasPending) {
+    e.preventDefault();
+    e.returnValue = 'You have unsaved predictions. Are you sure you want to leave?';
+  }
+});
+
 document.addEventListener('DOMContentLoaded', function() {
   loadState();
   initJoin();
@@ -1531,6 +1628,9 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('btn-change-code').addEventListener('click', changeJoinCode);
   document.getElementById('btn-copy-code').addEventListener('click', copyJoinCode);
   document.getElementById('btn-export').addEventListener('click', exportData);
+  document.getElementById('btn-clear-preds').addEventListener('click', clearAllPredictions);
+  document.getElementById('btn-clear-results').addEventListener('click', clearAllResults);
+  document.getElementById('btn-clear-all').addEventListener('click', clearEverything);
   document.getElementById('new-code').addEventListener('input', function() {
     this.value = this.value.toUpperCase();
   });

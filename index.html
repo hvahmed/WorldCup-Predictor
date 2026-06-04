@@ -583,7 +583,8 @@ create table if not exists results (
 );
 create table if not exists settings (
   key text primary key,
-  value text
+  value text,
+  created_at timestamptz default now()
 );
 alter table players enable row level security;
 alter table predictions enable row level security;
@@ -646,7 +647,31 @@ async function sbUpsert(table, body, onConflict) {
   });
 }
 async function sbDelete(table, qs) {
-  return fetch(cfg.sbUrl+'/rest/v1/'+table+qs, { method:'DELETE', headers: sbH() });
+  return fetch(cfg.sbUrl+'/rest/v1/'+table+qs, {
+    method:'DELETE',
+    headers: { ...sbH(), 'Prefer': 'return=minimal' }
+  });
+}
+
+async function sbDeleteAll(table) {
+  // Delete all rows - Supabase requires at least one filter, use updated_at or created_at
+  // We use a trick: delete where created_at <= now (always true)
+  var now = new Date().toISOString();
+  return fetch(cfg.sbUrl+'/rest/v1/'+table+'?created_at=lte.'+encodeURIComponent(now), {
+    method:'DELETE',
+    headers: { ...sbH(), 'Prefer': 'return=minimal' }
+  });
+}
+
+async function sbDeleteAllSettings() {
+  // Settings table uses 'key' not 'created_at' - delete where key like '%' (all)
+  // Use key=neq.____NOMATCH____ as workaround
+  var now = new Date().toISOString();
+  // For settings, delete rows where updated_at exists or use key pattern
+  return fetch(cfg.sbUrl+'/rest/v1/settings?key=like.*', {
+    method:'DELETE',
+    headers: { ...sbH(), 'Prefer': 'return=minimal' }
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1489,29 +1514,53 @@ async function exportData() {
 // ═══════════════════════════════════════════════════════
 async function clearAllPredictions() {
   if (!confirm('Delete ALL predictions from the database? This cannot be undone.')) return;
-  await sbDelete('predictions', '?id=neq.00000000-0000-0000-0000-000000000000'); // delete all rows
-  myPredictions = {};
-  toast('All predictions cleared ✅');
+  var r = await sbDeleteAll('predictions');
+  if (r.ok || r.status === 204 || r.status === 200) {
+    myPredictions = {};
+    // Refresh the predictions display
+    document.getElementById('my-preds-list').innerHTML = '<div class="empty">All predictions cleared.</div>';
+    toast('All predictions cleared ✅');
+  } else {
+    var txt = await r.text();
+    toast('Delete failed: ' + txt.substring(0,60), true);
+  }
 }
 
 async function clearAllResults() {
   if (!confirm('Delete ALL match results from the database? This cannot be undone.')) return;
-  await sbDelete('results', '?match_id=neq.none');
-  results = {};
-  toast('All results cleared ✅');
+  var r = await sbDeleteAll('results');
+  if (r.ok || r.status === 204 || r.status === 200) {
+    results = {};
+    toast('All results cleared ✅');
+  } else {
+    var txt = await r.text();
+    toast('Delete failed: ' + txt.substring(0,60), true);
+  }
 }
 
 async function clearEverything() {
-  if (!confirm('Clear ALL predictions, results and players? This completely resets the app. Cannot be undone.')) return;
-  if (!confirm('Are you absolutely sure? This deletes everything.')) return;
-  await sbDelete('predictions', '?id=neq.00000000-0000-0000-0000-000000000000');
-  await sbDelete('results', '?match_id=neq.none');
-  await sbDelete('players', '?id=neq.00000000-0000-0000-0000-000000000000');
-  await sbDelete('settings', '?key=neq.none');
-  myPredictions = {};
-  results = {};
-  allPlayers = [];
-  toast('Everything cleared — fresh start! ✅');
+  if (!confirm('Clear ALL predictions, results, players and settings? Cannot be undone.')) return;
+  if (!confirm('Final warning — this deletes everything. Are you sure?')) return;
+  var r1 = await sbDeleteAll('predictions');
+  var r2 = await sbDeleteAll('results');
+  var r3 = await sbDeleteAll('players');
+  var r4 = await fetch(cfg.sbUrl+'/rest/v1/settings?key=like.%25', {
+    method:'DELETE', headers: { ...sbH(), 'Prefer':'return=minimal' }
+  });
+  var allOk = [r1,r2,r3,r4].every(function(r){ return r.ok || r.status===204 || r.status===200; });
+  if (allOk) {
+    myPredictions = {};
+    results = {};
+    allPlayers = [];
+    officialFinalists = {};
+    officialAwards = {};
+    document.getElementById('my-preds-list').innerHTML = '<div class="empty">All data cleared — fresh start!</div>';
+    document.getElementById('players-list').innerHTML = '<div class="empty">No players.</div>';
+    document.getElementById('lb-content').innerHTML = '<div class="empty" style="padding:40px">No data.</div>';
+    toast('Everything cleared — fresh start! ✅');
+  } else {
+    toast('Some deletes failed — check Supabase connection', true);
+  }
 }
 
 // ═══════════════════════════════════════════════════════

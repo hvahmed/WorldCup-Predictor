@@ -277,8 +277,8 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
 <!-- MATCHES PAGE -->
 <div class="page" id="page-matches">
   <div class="tabs" id="tabs-matches">
-    <button type="button" class="tab-btn active" data-tab="tab-results">Results (Admin)</button>
-    <button type="button" class="tab-btn" data-tab="tab-awards-admin">Finalists & Awards</button>
+    <button type="button" class="tab-btn active admin-only-tab" data-tab="tab-results">Results (Admin)</button>
+    <button type="button" class="tab-btn admin-only-tab" data-tab="tab-awards-admin">Finalists & Awards</button>
     <button type="button" class="tab-btn" data-tab="tab-schedule">Full Schedule</button>
   </div>
   <div class="tab-pane active" id="tab-results">
@@ -626,10 +626,12 @@ async function sbGet(table, qs) {
   const r = await fetch(cfg.sbUrl+'/rest/v1/'+table+(qs||''), { headers: sbH() });
   return r.json();
 }
-async function sbUpsert(table, body) {
-  return fetch(cfg.sbUrl+'/rest/v1/'+table, {
+async function sbUpsert(table, body, onConflict) {
+  const prefer = 'resolution=merge-duplicates' + (onConflict ? ',return=minimal' : '');
+  const url = cfg.sbUrl+'/rest/v1/'+table + (onConflict ? '?on_conflict='+onConflict : '');
+  return fetch(url, {
     method:'POST',
-    headers: { ...sbH(), 'Prefer':'resolution=merge-duplicates' },
+    headers: { ...sbH(), 'Prefer': prefer },
     body: JSON.stringify(body)
   });
 }
@@ -693,13 +695,29 @@ function initApp() {
 // ═══════════════════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════════════════
+function isAdmin() {
+  return profile.role === 'admin';
+}
+
 function showPage(pageId) {
   document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
   document.querySelectorAll('.nav-btn').forEach(function(b) {
     b.classList.toggle('active', b.dataset.page === pageId);
   });
   document.getElementById('page-' + pageId).classList.add('active');
-  if (pageId === 'matches') { renderResults(); renderSchedule(); loadOfficialData(); }
+  if (pageId === 'matches') {
+    // Show/hide admin-only tabs based on role
+    var adminTabs = document.querySelectorAll('.admin-only-tab');
+    adminTabs.forEach(function(t) { t.style.display = isAdmin() ? '' : 'none'; });
+    if (!isAdmin()) {
+      // Force non-admins to schedule tab
+      showTab('tabs-matches', 'tab-schedule');
+    } else {
+      renderResults();
+    }
+    renderSchedule();
+    loadOfficialData();
+  }
   if (pageId === 'predict') { loadMyPredictions(); }
   if (pageId === 'leaderboard') { renderLeaderboard(); }
 }
@@ -989,7 +1007,17 @@ const AWARD_KEYS = ['f1','f2','winner','boot','ball','glove','young'];
 const AWARD_LABELS = { f1:'Finalist 1', f2:'Finalist 2', winner:'Champion', boot:'Golden Boot', ball:'Golden Ball', glove:'Golden Glove', young:'Best Young Player' };
 const AWARD_ICONS = { f1:'🏆', f2:'🏆', winner:'🥇', boot:'👟', ball:'⚽', glove:'🧤', young:'🌟' };
 
+const AWARDS_DEADLINE = new Date('2026-06-10T23:00:00Z'); // 11 Jun 00:00 BST = 10 Jun 23:00 UTC
+
+function awardsDeadlinePassed() {
+  return Date.now() >= AWARDS_DEADLINE.getTime();
+}
+
 function openAwardsModal(prefill) {
+  if (awardsDeadlinePassed()) {
+    toast('Award picks are locked — deadline was 11 June 00:00 BST', true);
+    return;
+  }
   AWARD_KEYS.forEach(function(k) {
     const el = document.getElementById('aw-' + k);
     if (el) el.value = (prefill && prefill[k]) ? prefill[k] : '';
@@ -1034,14 +1062,26 @@ async function loadMyAwards() {
   }
 }
 
+function awardsDeadlineLabel() {
+  if (awardsDeadlinePassed()) return '<span class="badge badge-red" style="margin-left:8px">🔒 Deadline passed</span>';
+  const diff = AWARDS_DEADLINE.getTime() - Date.now();
+  const h = Math.floor(diff / 3600000);
+  const days = Math.floor(h / 24);
+  const hrs = h % 24;
+  return '<span class="badge badge-grey" style="margin-left:8px">⏰ Deadline: 11 Jun 00:00 BST' + (days > 0 ? ' ('+days+'d '+hrs+'h left)' : h > 0 ? ' ('+h+'h left)' : '') + '</span>';
+}
+
 function renderAwardsSummary(awards) {
   const el = document.getElementById('awards-summary');
   if (!el) return;
+  let topHtml = '<div style="margin-bottom:8px">' + awardsDeadlineLabel() + '</div>';
   if (!awards || !Object.values(awards).some(function(v) { return v; })) {
-    el.innerHTML = '<span style="color:var(--muted);font-size:13px">No picks yet — click "My Award Picks" to add them.</span>';
+    el.innerHTML = topHtml + '<span style="color:var(--muted);font-size:13px">' +
+      (awardsDeadlinePassed() ? 'No picks were entered before the deadline.' : 'No picks yet — click "My Award Picks" to add them.') +
+      '</span>';
     return;
   }
-  let html = '<div class="awards-wrap">';
+  let html = topHtml + '<div class="awards-wrap">';
   AWARD_KEYS.forEach(function(k) {
     if (awards[k]) html += '<span class="award-chip">'+AWARD_ICONS[k]+' '+AWARD_LABELS[k]+': <strong>'+awards[k]+'</strong></span>';
   });
@@ -1060,8 +1100,10 @@ async function loadMyPredictions() {
   await loadResults();
   await loadOfficialData();
   const data = await sbGet('predictions', '?player_name=eq.' + encodeURIComponent(profile.name));
-  myPredictions = {};
-  (data || []).forEach(function(p) { myPredictions[p.match_id] = { home: p.home_score, away: p.away_score }; });
+  // Merge with any locally staged predictions (don't wipe unsaved changes)
+  var fresh = {};
+  (data || []).forEach(function(p) { fresh[p.match_id] = { home: p.home_score, away: p.away_score }; });
+  myPredictions = Object.assign(fresh, myPredictions); // local staged takes priority
   const awards = await loadMyAwards();
   renderAwardsSummary(awards);
   renderMyPredictions(awards);
@@ -1082,6 +1124,35 @@ function ptsBadge(pts) {
   if (pts === 3) return '<span class="badge badge-gold">⭐ 3 pts — Perfect!</span>';
   if (pts === 1) return '<span class="badge badge-green">✅ 1 pt — Right outcome</span>';
   return '<span class="badge badge-red">❌ 0 pts</span>';
+}
+
+function matchKickoffUTC(m) {
+  // Parse BST time (UTC+1 in summer) -> UTC
+  // m.time is like "20:00 BST"
+  const timePart = m.time.replace(' BST','').replace(' UTC','');
+  const [hh, mm] = timePart.split(':').map(Number);
+  const isBST = m.time.includes('BST');
+  const offsetMins = isBST ? 60 : 0; // BST = UTC+1
+  const dt = new Date(m.date + 'T00:00:00Z');
+  dt.setUTCHours(hh - (offsetMins / 60), mm, 0, 0);
+  return dt;
+}
+
+function isKickedOff(m) {
+  return Date.now() >= matchKickoffUTC(m).getTime();
+}
+
+function timeUntilKickoff(m) {
+  const diff = matchKickoffUTC(m).getTime() - Date.now();
+  if (diff <= 0) return null;
+  const h = Math.floor(diff / 3600000);
+  const min = Math.floor((diff % 3600000) / 60000);
+  if (h > 24) {
+    const days = Math.floor(h / 24);
+    return 'in ' + days + 'd ' + (h % 24) + 'h';
+  }
+  if (h > 0) return 'in ' + h + 'h ' + min + 'm';
+  return 'in ' + min + 'm';
 }
 
 function renderMyPredictions(awards) {
@@ -1106,14 +1177,27 @@ function renderMyPredictions(awards) {
   });
   html += '</div></div>';
 
-  // Match predictions
-  html += MATCHES.map(function(m) {
+  // Match predictions — sorted by date then time
+  const sortedMatches = MATCHES.slice().sort(function(a, b) {
+    return matchKickoffUTC(a).getTime() - matchKickoffUTC(b).getTime();
+  });
+  html += sortedMatches.map(function(m) {
     const pred = myPredictions[m.id] || { home: '', away: '' };
     const r = results[m.id];
     const pts = calcPts(pred, r);
-    const locked = !!r;
+    const kicked = isKickedOff(m);
+    const locked = !!r || kicked;  // lock if result entered OR kickoff passed
     const dt = new Date(m.date + 'T12:00:00');
     const ds = dt.toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' });
+    const countdown = !kicked ? timeUntilKickoff(m) : null;
+    let statusBadge;
+    if (r) {
+      statusBadge = ptsBadge(pts);
+    } else if (kicked) {
+      statusBadge = '<span class="badge badge-grey">🔒 Kicked off — awaiting result</span>';
+    } else {
+      statusBadge = '<span class="badge badge-grey">⏳ ' + ds + ' · ' + m.time + (countdown ? ' (' + countdown + ')' : '') + '</span>';
+    }
     return '<div class="pred-card">' +
       '<div class="pred-grid">' +
         teamHtml(m.home, 'home') +
@@ -1124,29 +1208,45 @@ function renderMyPredictions(awards) {
             '<span class="score-sep">–</span>' +
             '<input type="number" min="0" max="99" id="pa-'+m.id+'" value="'+(pred.away!==null&&pred.away!==''?pred.away:'')+'" placeholder="–"'+(locked?' disabled':'')+' data-mid="'+m.id+'" data-side="away">' +
           '</div>' +
-          (r ? '<span class="match-meta">Result: '+r.home+'–'+r.away+'</span>' : '<span class="match-meta">'+ds+' · '+m.time+'</span>') +
+          (r ? '<span class="match-meta">Result: '+r.home+'–'+r.away+'</span>' : '<span class="match-meta">'+m.time+'</span>') +
         '</div>' +
         teamHtml(m.away, 'away') +
       '</div>' +
-      '<div>' + (r ? ptsBadge(pts) : '<span class="badge badge-grey">⏳ Awaiting result</span>') + '</div>' +
+      '<div>' + statusBadge + '</div>' +
     '</div>';
   }).join('');
 
   document.getElementById('my-preds-list').innerHTML = html;
 
-  // Attach input listeners for predictions
-  MATCHES.forEach(function(m) {
+  // Attach input listeners for predictions (only for unlocked matches)
+  sortedMatches.forEach(function(m) {
+    if (isKickedOff(m) || results[m.id]) return; // skip locked
     ['home','away'].forEach(function(side) {
       const inp = document.getElementById((side==='home'?'ph-':'pa-') + m.id);
-      if (inp && !inp.disabled) {
+      if (inp) {
         inp.addEventListener('change', function() { savePrediction(m.id, side, this.value); });
       }
     });
   });
+
+  // Auto-refresh predictions page every 60 seconds to update countdowns & locks
+  if (window._predRefreshTimer) clearInterval(window._predRefreshTimer);
+  window._predRefreshTimer = setInterval(function() {
+    const predPage = document.getElementById('page-predict');
+    if (predPage && predPage.classList.contains('active')) {
+      // Only reload results from server, keep local predictions
+      loadResults().then(function() {
+        loadMyPredictions();
+      });
+    }
+  }, 60000);
 }
 
 async function savePrediction(matchId, side, val) {
   if (!profile.name || !cfg.sbUrl) return;
+  // Double-check kickoff hasn't passed since page loaded
+  const match = MATCHES.find(function(m) { return m.id === matchId; });
+  if (match && isKickedOff(match)) { toast('Match has kicked off — prediction locked', true); return; }
   if (!myPredictions[matchId]) myPredictions[matchId] = { home: null, away: null };
   myPredictions[matchId][side] = val === '' ? null : parseInt(val);
   clearTimeout(predTimers[matchId]);
@@ -1156,7 +1256,7 @@ async function savePrediction(matchId, side, val) {
       player_name: profile.name, match_id: matchId,
       home_score: p.home, away_score: p.away,
       updated_at: new Date().toISOString()
-    });
+    }, 'player_name,match_id');
     toast('Prediction saved ✓');
   }, 800);
 }
@@ -1376,9 +1476,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Matches
   document.getElementById('btn-fetch-scores').addEventListener('click', fetchLiveScores);
+  // Also add a manual refresh results button
+  var refreshResultsBtn = document.createElement('button');
+  refreshResultsBtn.type = 'button';
+  refreshResultsBtn.className = 'btn btn-outline btn-sm';
+  refreshResultsBtn.textContent = '↻ Refresh Results';
+  refreshResultsBtn.addEventListener('click', function() {
+    results = {};
+    loadResults().then(renderResults);
+  });
+  var fetchBtn = document.getElementById('btn-fetch-scores');
+  fetchBtn.parentNode.insertBefore(refreshResultsBtn, fetchBtn.nextSibling);
   document.getElementById('btn-save-finalists').addEventListener('click', saveFinalists);
   document.getElementById('btn-save-awards').addEventListener('click', saveOfficialAwards);
-  document.getElementById('filter-results').addEventListener('change', renderResults);
+  document.getElementById('filter-results').addEventListener('change', function() {
+    loadResults().then(renderResults);
+  });
   document.getElementById('filter-schedule').addEventListener('change', renderSchedule);
 
   // Results dynamic buttons (save/clear per match)
@@ -1391,7 +1504,10 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // Predict
-  document.getElementById('btn-refresh-preds').addEventListener('click', loadMyPredictions);
+  document.getElementById('btn-refresh-preds').addEventListener('click', function() {
+    myPredictions = {}; // clear local cache to force fresh load
+    loadMyPredictions();
+  });
   document.getElementById('btn-open-awards-modal').addEventListener('click', function() {
     loadMyAwards().then(function(a) { openAwardsModal(a); });
   });
@@ -1401,7 +1517,10 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('btn-save-awards-modal').addEventListener('click', saveAwardPredictions);
 
   // Leaderboard
-  document.getElementById('btn-refresh-lb').addEventListener('click', renderLeaderboard);
+  document.getElementById('btn-refresh-lb').addEventListener('click', function() {
+    results = {}; // clear cache so fresh data loads
+    renderLeaderboard();
+  });
 
   // Admin
   document.getElementById('btn-check-admin').addEventListener('click', checkAdmin);

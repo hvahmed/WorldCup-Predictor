@@ -20,7 +20,7 @@ body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;min-
 
 /* JOIN SCREEN */
 #join-screen{position:fixed;inset:0;background:#1a2236;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:24px}
-#join-screen.hidden{display:none}
+#join-screen.hidden{display:none!important}
 .join-logo{font-size:64px;margin-bottom:16px}
 .join-title{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:3px;color:#f5c518;margin-bottom:6px}
 .join-sub{font-family:'Barlow Condensed',sans-serif;font-size:13px;letter-spacing:3px;color:#94a3b8;text-transform:uppercase;margin-bottom:32px}
@@ -673,8 +673,12 @@ function checkJoin() {
 }
 
 function showApp() {
-  document.getElementById('join-screen').classList.add('hidden');
-  document.getElementById('app').style.display = 'block';
+  var js = document.getElementById('join-screen');
+  js.classList.add('hidden');
+  js.style.display = 'none';
+  var app = document.getElementById('app');
+  app.style.display = 'block';
+  app.style.visibility = 'visible';
   initApp();
 }
 
@@ -1525,16 +1529,6 @@ function toast(msg, isError) {
 // ═══════════════════════════════════════════════════════
 // ALL EVENT LISTENERS — defined once, no inline handlers
 // ═══════════════════════════════════════════════════════
-// Warn user if they try to leave with unsaved predictions
-window.addEventListener('beforeunload', function(e) {
-  var hasUnsaved = Object.values(myPredictions).some(function(p) { return p && p._saved === false; });
-  var hasPending = Object.keys(predTimers).some(function(k) { return predTimers[k]; });
-  if (hasUnsaved || hasPending) {
-    e.preventDefault();
-    e.returnValue = 'You have unsaved predictions. Are you sure you want to leave?';
-  }
-});
-
 document.addEventListener('DOMContentLoaded', function() {
   loadState();
   initJoin();

@@ -402,16 +402,17 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
         <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Download a full JSON backup.</p>
         <button type="button" class="btn btn-outline" id="btn-export">Export JSON</button>
       </div>
-      <div class="card" style="border-color:#fca5a5">
-        <div class="card-title" style="color:var(--red)">🗑️ Clear Test Data</div>
-        <p style="font-size:13px;color:var(--muted);margin-bottom:6px">Delete all predictions and results from the database. Use this to reset after testing before your group starts for real.</p>
-        <p style="font-size:12px;color:var(--red);margin-bottom:14px">⚠️ This cannot be undone.</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="btn btn-danger" id="btn-clear-preds">Clear All Predictions</button>
-          <button type="button" class="btn btn-danger" id="btn-clear-results">Clear All Results</button>
-          <button type="button" class="btn btn-danger" id="btn-clear-all">Clear Everything</button>
-        </div>
+    </div>
+    <div class="card" style="border:2px solid #fca5a5;margin-top:8px">
+      <div class="card-title" style="color:var(--red)">🗑️ Clear Test Data</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:6px">Delete data from the database. Use this to reset after testing before your real competition begins.</p>
+      <p style="font-size:12px;color:var(--red);margin-bottom:16px;font-weight:600">⚠️ These actions cannot be undone.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button type="button" class="btn btn-danger" id="btn-clear-preds">🗑️ Clear All Predictions</button>
+        <button type="button" class="btn btn-danger" id="btn-clear-results">🗑️ Clear All Results</button>
+        <button type="button" class="btn btn-danger" id="btn-clear-all">💥 Clear Everything</button>
       </div>
+    <div style="display:none">
     </div>
   </div>
 </div>
@@ -1191,7 +1192,7 @@ function renderMyPredictions(awards) {
     } else if ((k === 'f1' || k === 'f2') && ofSet.length && awards && awards[k]) {
       badge = ofSet.includes(norm(awards[k])) ? ' <span class="badge badge-gold">✓ +5pts</span>' : ' <span class="badge badge-red">✗</span>';
     }
-    html += '<div class="finalist-field"><span style="font-size:11px;color:var(--muted);font-family:\'Barlow Condensed\';letter-spacing:1px;text-transform:uppercase">'+AWARD_ICONS[k]+' '+AWARD_LABELS[k]+'</span><div style="font-weight:700;margin-top:4px">'+val+badge+'</div></div>';
+    html += '<div class="finalist-field"><span class="match-meta">'+AWARD_ICONS[k]+' '+AWARD_LABELS[k]+'</span><div style="font-weight:700;margin-top:4px">'+val+badge+'</div></div>';
   });
   html += '</div></div>';
 
@@ -1232,7 +1233,7 @@ function renderMyPredictions(awards) {
       '</div>' +
       '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
         statusBadge +
-        (!locked ? '<span class="save-status" id="ss-'+m.id+'" style="font-family:'Barlow Condensed';font-size:11px;letter-spacing:1px;color:var(--muted)"></span>' : '') +
+        (!locked ? '<span class="save-status" id="ss-'+m.id+'" style="font-family:sans-serif;font-size:11px;letter-spacing:1px;color:var(--muted)"></span>' : '') +
       '</div>' +
     '</div>';
   }).join('');

@@ -339,6 +339,15 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
     <button type="button" class="tab-btn" data-tab="tab-others" data-onshow="loadOtherPredictions">Others' Picks</button>
   </div>
   <div class="tab-pane active" id="tab-my-preds">
+    <!-- Stage sub-tabs -->
+    <div class="tabs" id="tabs-stage" style="margin-bottom:14px;border-bottom:1px solid var(--border)">
+      <button type="button" class="tab-btn active" data-stage="Group Stage">Group Stage</button>
+      <button type="button" class="tab-btn" data-stage="Round of 32">R32</button>
+      <button type="button" class="tab-btn" data-stage="Round of 16">R16</button>
+      <button type="button" class="tab-btn" data-stage="Quarter-Final">QF</button>
+      <button type="button" class="tab-btn" data-stage="Semi-Final">SF</button>
+      <button type="button" class="tab-btn" data-stage="Final">Final</button>
+    </div>
     <div id="my-preds-list"><div class="empty">Save your profile in Setup first.</div></div>
   </div>
   <div class="tab-pane" id="tab-others">
@@ -401,6 +410,41 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
         <div class="card-title">📤 Export Data</div>
         <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Download a full JSON backup.</p>
         <button type="button" class="btn btn-outline" id="btn-export">Export JSON</button>
+      </div>
+      <div class="card">
+        <div class="card-title">➕ <span class="accent">Add</span> Knockout Match</div>
+        <div class="info-box">Use this to add Round of 32, Quarter-Finals, Semi-Finals and the Final once the groups are complete.</div>
+        <label class="field-label">Stage</label>
+        <select id="add-stage">
+          <option value="Round of 32">Round of 32</option>
+          <option value="Round of 16">Round of 16</option>
+          <option value="Quarter-Final">Quarter-Final</option>
+          <option value="Semi-Final">Semi-Final</option>
+          <option value="Third Place Play-off">Third Place Play-off</option>
+          <option value="Final">Final</option>
+        </select>
+        <label class="field-label">Home Team</label>
+        <input type="text" id="add-home" placeholder="e.g. Brazil">
+        <label class="field-label">Away Team</label>
+        <input type="text" id="add-away" placeholder="e.g. France">
+        <label class="field-label">Date (BST)</label>
+        <input type="date" id="add-date" min="2026-06-28" max="2026-07-19">
+        <label class="field-label">Kick-off Time (BST)</label>
+        <select id="add-time">
+          <option value="00:00 BST">00:00 BST</option>
+          <option value="01:00 BST">01:00 BST</option>
+          <option value="02:00 BST">02:00 BST</option>
+          <option value="03:00 BST">03:00 BST</option>
+          <option value="17:00 BST">17:00 BST</option>
+          <option value="20:00 BST">20:00 BST</option>
+          <option value="21:00 BST">21:00 BST</option>
+          <option value="22:00 BST">22:00 BST</option>
+          <option value="23:00 BST">23:00 BST</option>
+        </select>
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn btn-gold" id="btn-add-match">Add Match</button>
+        </div>
+        <div id="added-matches-list" style="margin-top:14px"></div>
       </div>
     </div>
     <div class="card" style="border:2px solid #fca5a5;margin-top:8px">
@@ -481,7 +525,7 @@ function teamHtml(team, side) {
     : `<div class="team">${team} ${f}</div>`;
 }
 
-const MATCHES = [
+let MATCHES = [
   {id:'m01',group:'Group A',home:'Mexico',away:'South Africa',date:'2026-06-11',time:'20:00 BST'},
   {id:'m02',group:'Group A',home:'South Korea',away:'Czechia',date:'2026-06-12',time:'03:00 BST'},
   {id:'m03',group:'Group A',home:'Czechia',away:'South Africa',date:'2026-06-18',time:'17:00 BST'},
@@ -556,7 +600,7 @@ const MATCHES = [
   {id:'m72',group:'Group L',home:'Panama',away:'England',date:'2026-06-27',time:'22:00 BST'}
 ];
 
-const GROUPS = [...new Set(MATCHES.map(m => m.group))];
+function getGroups(){ return [...new Set(MATCHES.map(function(m){return m.group;}))]; }
 
 const SETUP_SQL = `-- Run once in Supabase SQL Editor
 
@@ -572,6 +616,7 @@ create table if not exists predictions (
   match_id text not null,
   home_score int,
   away_score int,
+  pen_winner text,
   updated_at timestamptz default now(),
   unique(player_name, match_id)
 );
@@ -579,6 +624,7 @@ create table if not exists results (
   match_id text primary key,
   home_score int not null,
   away_score int not null,
+  pen_winner text,
   updated_at timestamptz default now()
 );
 create table if not exists settings (
@@ -600,7 +646,11 @@ create policy "i" on results for insert with check (true);
 create policy "u" on results for update using (true);
 create policy "r" on settings for select using (true);
 create policy "i" on settings for insert with check (true);
-create policy "u" on settings for update using (true);`;
+create policy "u" on settings for update using (true);
+
+-- If you already ran the setup SQL previously, run these to add penalty support:
+alter table predictions add column if not exists pen_winner text;
+alter table results add column if not exists pen_winner text;`;
 
 // ═══════════════════════════════════════════════════════
 // STATE
@@ -719,9 +769,11 @@ function initApp() {
   }
   document.getElementById('current-code').value = cfg.joinCode || 'WORLDCUP26';
 
-  loadResults().then(function() {
-    renderSchedule();
-    renderResults();
+  loadExtraMatches().then(function() {
+    loadResults().then(function() {
+      renderSchedule();
+      renderResults();
+    });
   });
 }
 
@@ -854,7 +906,14 @@ async function loadResults() {
   if (!cfg.sbUrl) return;
   const data = await sbGet('results', '');
   results = {};
-  (data || []).forEach(function(r) { results[r.match_id] = { home: r.home_score, away: r.away_score }; });
+  (data || []).forEach(function(r) {
+    results[r.match_id] = {
+      home: r.home_score, away: r.away_score,
+      pen_winner: r.pen_winner || null,
+      home_team: (MATCHES.find(function(m){return m.id===r.match_id;})||{}).home || '',
+      away_team: (MATCHES.find(function(m){return m.id===r.match_id;})||{}).away || ''
+    };
+  });
 }
 
 function renderResults() {
@@ -881,9 +940,16 @@ function renderResults() {
           '<span class="score-sep">–</span>' +
           '<input type="number" min="0" max="99" id="ra-'+m.id+'" value="'+(r?r.away:'')+'" placeholder="0">' +
         '</div>' +
+        (isKnockoutStage(m) ? (
+          '<select id="rpen-'+m.id+'" style="width:auto;font-size:12px">' +
+            '<option value="">No pens</option>' +
+            '<option value="'+m.home+'"'+(r&&r.pen_winner===m.home?' selected':'')+'>Pens: '+m.home+'</option>' +
+            '<option value="'+m.away+'"'+(r&&r.pen_winner===m.away?' selected':'')+'>Pens: '+m.away+'</option>' +
+          '</select>'
+        ) : '') +
         '<button type="button" class="btn btn-gold btn-sm" data-action="saveResult" data-id="'+m.id+'">Save</button>' +
         (r ? '<button type="button" class="btn btn-outline btn-sm" data-action="clearResult" data-id="'+m.id+'">Clear</button>' : '') +
-        '<span class="match-meta" style="margin-left:auto">' + (r ? '✅ Saved' : '⏳ Pending') + '</span>' +
+        '<span class="match-meta" style="margin-left:auto">' + (r ? '✅ Saved · Edit values above to overwrite' : '⏳ Pending') + '</span>' +
       '</div>' +
     '</div>';
   }).join('');
@@ -893,8 +959,11 @@ async function saveResult(id) {
   const h = parseInt(document.getElementById('rh-' + id).value);
   const a = parseInt(document.getElementById('ra-' + id).value);
   if (isNaN(h) || isNaN(a)) { toast('Enter valid scores', true); return; }
-  results[id] = { home: h, away: a };
-  await sbUpsert('results', { match_id: id, home_score: h, away_score: a, updated_at: new Date().toISOString() });
+  var penSel = document.getElementById('rpen-' + id);
+  var penWinner = penSel ? penSel.value : null;
+  var m = MATCHES.find(function(x){ return x.id===id; });
+  results[id] = { home: h, away: a, pen_winner: penWinner||null, home_team: m?m.home:'', away_team: m?m.away:'' };
+  await sbUpsert('results', { match_id: id, home_score: h, away_score: a, pen_winner: penWinner||null, updated_at: new Date().toISOString() });
   toast('Result saved ✅');
   renderResults();
 }
@@ -932,44 +1001,114 @@ function populateGroupFilters() {
   ['filter-results', 'filter-schedule'].forEach(function(id) {
     const el = document.getElementById(id);
     el.innerHTML = '<option value="">All Groups</option>' +
-      GROUPS.map(function(g) { return '<option value="'+g+'">'+g+'</option>'; }).join('');
+      getGroups().map(function(g) { return '<option value="'+g+'">'+g+'</option>'; }).join('');
   });
 }
 
 // ═══════════════════════════════════════════════════════
 // LIVE SCORES
 // ═══════════════════════════════════════════════════════
+// Map API-Football round names to our stage labels
+function apiRoundToStage(round) {
+  if (!round) return 'Knockout';
+  var r = round.toLowerCase();
+  if (r.includes('final') && r.includes('3rd')) return 'Third Place Play-off';
+  if (r.includes('final') && !r.includes('semi') && !r.includes('quarter')) return 'Final';
+  if (r.includes('semi')) return 'Semi-Final';
+  if (r.includes('quarter')) return 'Quarter-Final';
+  if (r.includes('round of 16')) return 'Round of 16';
+  if (r.includes('round of 32')) return 'Round of 32';
+  return round;
+}
+
 async function fetchLiveScores() {
   if (!cfg.apiKey) { toast('Add API-Football key in Setup', true); return; }
   const btn = document.getElementById('btn-fetch-scores');
   const status = document.getElementById('fetch-status');
   btn.textContent = '⏳ Fetching...'; btn.disabled = true;
   try {
-    const r = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2026&status=FT', {
+    // Fetch all finished AND live matches
+    const r = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2026', {
       headers: { 'x-apisports-key': cfg.apiKey }
     });
     const data = await r.json();
     const fixtures = data.response || [];
+    const norm = function(t) { return (t||'').toLowerCase().replace(/[^a-z]/g, ''); };
     let updated = 0;
+    let added = 0;
+
     for (let i = 0; i < fixtures.length; i++) {
       const fix = fixtures[i];
+      const statusCode = fix.fixture.status.short; // FT, NS, 1H, 2H, etc.
       const h = fix.goals.home;
       const a = fix.goals.away;
-      if (h === null || a === null) continue;
-      const norm = function(t) { return (t||'').toLowerCase().replace(/[^a-z]/g, ''); };
-      const match = MATCHES.find(function(m) {
-        return norm(m.home) === norm(fix.teams.home.name) && norm(m.away) === norm(fix.teams.away.name);
+      const homeName = fix.teams.home.name;
+      const awayName = fix.teams.away.name;
+      const round = fix.league.round;
+      const kickoff = fix.fixture.date; // ISO string
+
+      // Try to find existing match by team names
+      var match = MATCHES.find(function(m) {
+        return norm(m.home) === norm(homeName) && norm(m.away) === norm(awayName);
       });
-      if (match) {
+
+      // If not found AND it's a knockout round — auto-create it
+      if (!match && round && !round.toLowerCase().includes('group')) {
+        var stage = apiRoundToStage(round);
+        // Check it's not already in extraMatches
+        var alreadyExtra = extraMatches.find(function(m) {
+          return norm(m.home) === norm(homeName) && norm(m.away) === norm(awayName);
+        });
+        if (!alreadyExtra) {
+          var koDate = kickoff ? kickoff.substring(0, 10) : '';
+          // Convert UTC kickoff to BST time display
+          var koTime = '';
+          if (kickoff) {
+            var kd = new Date(kickoff);
+            var bstH = kd.getUTCHours() + 1; // BST = UTC+1
+            var bstM = kd.getUTCMinutes();
+            koTime = (bstH % 24).toString().padStart(2,'0') + ':' + bstM.toString().padStart(2,'0') + ' BST';
+            // If BST time rolls past midnight, add a day
+            if (bstH >= 24) koDate = new Date(kd.getTime() + 3600000).toISOString().substring(0,10);
+          }
+          var newMatch = {
+            id: 'ko_api_' + fix.fixture.id,
+            group: stage,
+            home: homeName,
+            away: awayName,
+            date: koDate,
+            time: koTime
+          };
+          MATCHES.push(newMatch);
+          extraMatches.push(newMatch);
+          match = newMatch;
+          added++;
+        }
+      }
+
+      // Save result if match finished or in progress
+      if (match && h !== null && a !== null && (statusCode === 'FT' || statusCode === 'AET' || statusCode === 'PEN')) {
         results[match.id] = { home: h, away: a };
         await sbUpsert('results', { match_id: match.id, home_score: h, away_score: a, updated_at: new Date().toISOString() });
         updated++;
       }
     }
-    status.textContent = '✅ ' + updated + ' result(s) updated';
-    toast('Fetched ' + updated + ' result(s) ⚽');
+
+    // Save any newly discovered knockout matches
+    if (added > 0) {
+      await saveExtraMatches();
+      populateGroupFilters();
+      renderAddedMatches();
+    }
+
+    var msg = '✅ ' + updated + ' result(s) updated';
+    if (added > 0) msg += ', ' + added + ' new match(es) added';
+    status.textContent = msg;
+    toast(msg + ' ⚽');
     renderResults();
+    renderSchedule();
   } catch(e) {
+    console.error(e);
     status.textContent = '❌ Failed';
     toast('API fetch failed', true);
   }
@@ -1137,7 +1276,7 @@ async function loadMyPredictions() {
   const data = await sbGet('predictions', '?player_name=eq.' + encodeURIComponent(profile.name));
   // Merge with any locally staged predictions (don't wipe unsaved changes)
   var fresh = {};
-  (data || []).forEach(function(p) { fresh[p.match_id] = { home: p.home_score, away: p.away_score, _saved: true }; });
+  (data || []).forEach(function(p) { fresh[p.match_id] = { home: p.home_score, away: p.away_score, pen_winner: p.pen_winner||null, _saved: true }; });
   // Merge: DB data is base, but keep any local unsaved changes on top
   Object.keys(myPredictions).forEach(function(mid) {
     var local = myPredictions[mid];
@@ -1154,13 +1293,75 @@ async function loadMyPredictions() {
 
 function outcome(h, a) { return h > a ? 'H' : h < a ? 'A' : 'D'; }
 
-function calcPts(pred, result) {
+function isKnockoutStage(matchOrGroup) {
+  var group = typeof matchOrGroup === 'string' ? matchOrGroup : (matchOrGroup.group || '');
+  return !group.toLowerCase().startsWith('group');
+}
+
+function calcPts(pred, result, matchGroup) {
   if (!result || pred.home === null || pred.home === '' || pred.away === null || pred.away === '') return null;
   const ph = parseInt(pred.home), pa = parseInt(pred.away);
   if (isNaN(ph) || isNaN(pa)) return null;
-  if (ph === result.home && pa === result.away) return 3;
-  if (outcome(ph, pa) === outcome(result.home, result.away)) return 1;
-  return 0;
+  var knockout = isKnockoutStage(matchGroup || '');
+  var exactScore = (ph === result.home && pa === result.away);
+
+  if (!knockout) {
+    // Group stage: standard scoring
+    if (exactScore) return 3;
+    if (outcome(ph, pa) === outcome(result.home, result.away)) return 1;
+    return 0;
+  }
+
+  // Knockout stage scoring
+  // Determine actual winner (accounting for pens)
+  var actualWinner = result.pen_winner || null; // team name if went to pens
+  var ftOutcome = outcome(result.home, result.away); // H, A, or D (D means went to pens/aet)
+
+  // Predicted a draw (meaning they think it goes to pens/aet)
+  var predDraw = (outcome(ph, pa) === 'D');
+
+  if (exactScore) {
+    // Correct exact score
+    if (predDraw && result.pen_winner) {
+      // Score is a draw — also check if they got the pen winner right
+      if (pred.pen_winner && pred.pen_winner === result.pen_winner) return 3; // exact + right pen winner
+      return 3; // exact score still 3pts even without pen winner
+    }
+    return 3;
+  }
+
+  // Not exact score — check outcome
+  // Who actually won overall?
+  var trueWinner; // 'H', 'A', or null for draw (shouldn't happen in KO)
+  if (result.pen_winner) {
+    // Went to penalties — winner is whoever pen_winner names
+    var m = MATCHES.find(function(x){ return results[x.id] === result; });
+    trueWinner = (result.pen_winner && result.home_name && result.pen_winner === result.home_name) ? 'H' : 'A';
+    // Simpler: if pred_pen_winner matches result.pen_winner, they got the winner
+    if (pred.pen_winner && pred.pen_winner === result.pen_winner) return 1;
+    // If they just predicted the right side to win (not via draw)
+    if (!predDraw) {
+      // They didn't predict a draw, so they predicted a direct win
+      // Check if their predicted winner matches the actual winner via pens
+      if (outcome(ph, pa) !== 'D') {
+        // They predicted home win or away win
+        // Compare to actual pen winner
+        if (result.pen_winner) {
+          // We need to know home/away teams — stored in result.home_team/away_team
+          if (outcome(ph, pa) === 'H' && result.pen_winner === result.home_team) return 1;
+          if (outcome(ph, pa) === 'A' && result.pen_winner === result.away_team) return 1;
+        } else {
+          // No pens, standard FT/AET result
+          if (outcome(ph, pa) === ftOutcome) return 1;
+        }
+      }
+    }
+    return 0;
+  } else {
+    // No pens — FT or AET result
+    if (outcome(ph, pa) === ftOutcome) return 1;
+    return 0;
+  }
 }
 
 function ptsBadge(pts) {
@@ -1220,14 +1421,26 @@ function renderMyPredictions(awards) {
   });
   html += '</div></div>';
 
-  // Match predictions — sorted by date then time
-  const sortedMatches = MATCHES.slice().sort(function(a, b) {
-    return matchKickoffUTC(a).getTime() - matchKickoffUTC(b).getTime();
-  });
+  // Get active stage filter
+  var activeStageBtn = document.querySelector('#tabs-stage .tab-btn.active');
+  var activeStage = activeStageBtn ? activeStageBtn.dataset.stage : 'Group Stage';
+  var isKO = isKnockoutStage(activeStage);
+
+  // Filter and sort matches by stage
+  var sortedMatches = MATCHES.slice()
+    .filter(function(m) {
+      if (activeStage === 'Group Stage') return m.group.toLowerCase().startsWith('group');
+      return m.group === activeStage;
+    })
+    .sort(function(a, b) { return matchKickoffUTC(a).getTime() - matchKickoffUTC(b).getTime(); });
+
+  if (!sortedMatches.length) {
+    html += '<div class="empty">No matches in this stage yet — they will appear automatically when fetched.</div>';
+  }
   html += sortedMatches.map(function(m) {
     const pred = myPredictions[m.id] || { home: '', away: '' };
     const r = results[m.id];
-    const pts = calcPts(pred, r);
+    const pts = calcPts(pred, r, m.group);
     const kicked = isKickedOff(m);
     const locked = !!r || kicked;  // lock if result entered OR kickoff passed
     const dt = new Date(m.date + 'T12:00:00');
@@ -1269,21 +1482,22 @@ function renderMyPredictions(awards) {
     if (isKickedOff(m) || results[m.id]) return; // skip locked
     var hInp = document.getElementById('ph-' + m.id);
     var aInp = document.getElementById('pa-' + m.id);
+    var penSel = document.getElementById('pen-sel-' + m.id);
     function onAnyInput() {
       var hVal = hInp ? hInp.value : '';
       var aVal = aInp ? aInp.value : '';
-      // Mark as unsaved immediately so we can warn on tab close
       if (!myPredictions[m.id]) myPredictions[m.id] = { home: null, away: null };
       myPredictions[m.id]._saved = false;
       savePrediction(m.id, hVal, aVal);
     }
-    if (hInp) {
-      hInp.addEventListener('input', onAnyInput);
-      hInp.addEventListener('blur', onAnyInput);
-    }
-    if (aInp) {
-      aInp.addEventListener('input', onAnyInput);
-      aInp.addEventListener('blur', onAnyInput);
+    if (hInp) { hInp.addEventListener('input', onAnyInput); hInp.addEventListener('blur', onAnyInput); }
+    if (aInp) { aInp.addEventListener('input', onAnyInput); aInp.addEventListener('blur', onAnyInput); }
+    if (penSel) {
+      penSel.addEventListener('change', function() {
+        var hVal = hInp ? hInp.value : '';
+        var aVal = aInp ? aInp.value : '';
+        savePrediction(m.id, hVal, aVal);
+      });
     }
   });
 
@@ -1316,15 +1530,30 @@ async function savePrediction(matchId, hVal, aVal) {
   var ssEl = document.getElementById('ss-' + matchId);
   if (ssEl) { ssEl.textContent = '💾 Saving...'; ssEl.style.color = 'var(--muted)'; }
 
-  // Cancel any pending save for this match
-  clearTimeout(predTimers[matchId]);
+  // Get pen winner if applicable
+  var penSel = document.getElementById('pen-sel-' + matchId);
+  var penWinner = penSel ? penSel.value : (myPredictions[matchId] ? myPredictions[matchId].pen_winner : null);
+  if (!myPredictions[matchId]) myPredictions[matchId] = { home: null, away: null, pen_winner: null };
+  myPredictions[matchId].pen_winner = penWinner || null;
 
-  // Short debounce (300ms) so rapid typing doesn't flood the API
+  // Show/hide pen picker based on whether scores are equal
+  var penPicker = document.getElementById('pen-' + matchId);
+  if (penPicker) {
+    var showPen = (hScore !== null && aScore !== null && !isNaN(hScore) && !isNaN(aScore) && hScore === aScore);
+    penPicker.style.display = showPen ? 'flex' : 'none';
+    if (!showPen) {
+      myPredictions[matchId].pen_winner = null;
+      if (penSel) penSel.value = '';
+    }
+  }
+
+  clearTimeout(predTimers[matchId]);
   predTimers[matchId] = setTimeout(async function() {
     try {
       var resp = await sbUpsert('predictions', {
         player_name: profile.name, match_id: matchId,
         home_score: hScore, away_score: aScore,
+        pen_winner: myPredictions[matchId].pen_winner || null,
         updated_at: new Date().toISOString()
       }, 'player_name,match_id');
       if (resp && (resp.ok || resp.status === 201 || resp.status === 200 || resp.status === 204)) {
@@ -1434,7 +1663,7 @@ async function loadOtherPredictions() {
       players.forEach(function(pl) {
         var pred = (byPlayer[pl.name]||{})[m.id];
         var scoreStr = (pred && pred.home_score !== null) ? pred.home_score+' – '+pred.away_score : '—';
-        var pts = (pred && r) ? calcPts({home:pred.home_score,away:pred.away_score},r) : null;
+        var pts = (pred && r) ? calcPts({home:pred.home_score,away:pred.away_score,pen_winner:pred.pen_winner||null},r,m.group) : null;
         var isYou = pl.name === profile.name;
         html += '<tr style="'+(isYou?'background:var(--gold-bg)':'')+'"><td>'+flagImg(pl.name)+' '+pl.name+(isYou?' <span class="admin-pip">YOU</span>':'')+'</td>';
         html += '<td><strong>'+scoreStr+'</strong></td>';
@@ -1476,7 +1705,7 @@ async function renderLeaderboard() {
     MATCHES.forEach(function(m) {
       const r = results[m.id]; if (!r) return;
       const pred = (byPlayer[pl.name]||{})[m.id]; if (!pred) return;
-      const p = calcPts({ home: pred.home_score, away: pred.away_score }, r);
+      const p = calcPts({ home: pred.home_score, away: pred.away_score, pen_winner: pred.pen_winner||null }, r, m.group);
       if (p === 3) { pts += 3; perfect++; }
       else if (p === 1) { pts += 1; partial++; }
     });
@@ -1498,8 +1727,25 @@ async function renderLeaderboard() {
 
   if (!rows.length) { el.innerHTML = '<div class="empty" style="padding:40px">No players yet.</div>'; return; }
 
+  // Load any manual point adjustments
+  var adjMap = {};
+  (settings||[]).forEach(function(s){
+    if(s.key.startsWith('adj_')) adjMap[s.key.replace('adj_','')] = parseInt(s.value)||0;
+  });
+
+  // Apply adjustments to totals
+  rows.forEach(function(r){
+    var adj = adjMap[r.name] || 0;
+    r.adj = adj;
+    r.total += adj;
+  });
+  rows.sort(function(a,b){ return b.total-a.total; });
+
+  var adminMode = isAdmin();
   el.innerHTML = '<table class="lb-table"><thead><tr>' +
-    '<th>#</th><th>Player</th><th>⭐ Perfect</th><th>✅ Outcome</th><th>🏅 Bonus</th><th>Points</th>' +
+    '<th>#</th><th>Player</th><th>⭐ Perfect</th><th>✅ Outcome</th><th>🏅 Bonus</th>' +
+    (adminMode ? '<th>✏️ Adj</th>' : '') +
+    '<th>Points</th>' +
     '</tr></thead><tbody>' +
     rows.map(function(r, i) {
       const rankClass = i===0?'r1':i===1?'r2':i===2?'r3':'';
@@ -1509,10 +1755,19 @@ async function renderLeaderboard() {
         '<td style="color:var(--gold)">'+r.perfect+'</td>' +
         '<td style="color:var(--green)">'+r.partial+'</td>' +
         '<td style="color:var(--blue)">+'+r.bonus+'</td>' +
-        '<td><span class="pts-big">'+r.total+'</span></td>' +
+        (adminMode ?
+          '<td><div style="display:flex;align-items:center;gap:4px">' +
+            '<input type="number" id="adj-'+r.name.replace(/\s/g,'_')+'" value="'+(r.adj||0)+'" style="width:60px;text-align:center;font-size:13px;padding:4px" placeholder="0">' +
+            '<button type="button" class="btn btn-gold btn-sm" data-action="saveAdj" data-player="'+r.name+'">✓</button>' +
+          '</div></td>'
+          : '') +
+        '<td><span class="pts-big">'+r.total+'</span>' +
+          (r.adj ? '<span style="font-size:11px;color:'+(r.adj>0?'var(--green)':'var(--red)')+'"> ('+( r.adj>0?'+':'')+r.adj+' adj)</span>' : '') +
+        '</td>' +
       '</tr>';
     }).join('') +
-    '</tbody></table>';
+    '</tbody></table>' +
+    (adminMode ? '<div style="font-size:12px;color:var(--muted);padding:10px 14px;border-top:1px solid var(--border)">✏️ Adj = manual point adjustment. Enter positive or negative number and click ✓ to apply.</div>' : '');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1561,6 +1816,75 @@ async function exportData() {
   a.href = URL.createObjectURL(blob);
   a.download = 'wcp2026-backup.json';
   a.click();
+}
+
+// ═══════════════════════════════════════════════════════
+// ADD KNOCKOUT MATCHES
+// ═══════════════════════════════════════════════════════
+// Extra matches added by admin at runtime (stored in Supabase settings)
+var extraMatches = [];
+
+async function loadExtraMatches() {
+  if (!cfg.sbUrl) return;
+  var data = await sbGet('settings', '?key=eq.extra_matches');
+  if (data && data[0] && data[0].value) {
+    try {
+      extraMatches = JSON.parse(data[0].value);
+      // Merge into MATCHES if not already there
+      extraMatches.forEach(function(em) {
+        if (!MATCHES.find(function(m){ return m.id === em.id; })) {
+          MATCHES.push(em);
+        }
+      });
+    } catch(e) { extraMatches = []; }
+  }
+}
+
+async function saveExtraMatches() {
+  await sbUpsert('settings', { key: 'extra_matches', value: JSON.stringify(extraMatches) });
+}
+
+function addKnockoutMatch() {
+  var stage = document.getElementById('add-stage').value;
+  var home  = document.getElementById('add-home').value.trim();
+  var away  = document.getElementById('add-away').value.trim();
+  var date  = document.getElementById('add-date').value;
+  var time  = document.getElementById('add-time').value;
+  if (!home || !away || !date) { toast('Fill in all fields', true); return; }
+  var id = 'ko_' + Date.now();
+  var match = { id: id, group: stage, home: home, away: away, date: date, time: time };
+  MATCHES.push(match);
+  extraMatches.push(match);
+  saveExtraMatches();
+  // Clear fields
+  document.getElementById('add-home').value = '';
+  document.getElementById('add-away').value = '';
+  document.getElementById('add-date').value = '';
+  renderAddedMatches();
+  populateGroupFilters();
+  toast('Match added: ' + home + ' vs ' + away + ' ✅');
+}
+
+function removeKnockoutMatch(id) {
+  MATCHES = MATCHES.filter(function(m){ return m.id !== id; });
+  extraMatches = extraMatches.filter(function(m){ return m.id !== id; });
+  saveExtraMatches();
+  renderAddedMatches();
+  populateGroupFilters();
+  toast('Match removed');
+}
+
+function renderAddedMatches() {
+  var el = document.getElementById('added-matches-list');
+  if (!el) return;
+  if (!extraMatches.length) { el.innerHTML = '<div style="font-size:13px;color:var(--muted)">No knockout matches added yet.</div>'; return; }
+  el.innerHTML = '<div class="match-meta" style="margin-bottom:8px">Added matches:</div>' +
+    extraMatches.map(function(m) {
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;margin-bottom:6px;font-size:13px">' +
+        '<span><strong>' + m.group + '</strong>: ' + m.home + ' vs ' + m.away + ' · ' + m.date + ' ' + m.time + '</span>' +
+        '<button type="button" class="btn btn-danger btn-sm" data-action="removeMatch" data-id="' + m.id + '">Remove</button>' +
+      '</div>';
+    }).join('');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1613,6 +1937,19 @@ async function clearEverything() {
   } else {
     toast('Some deletes failed — check Supabase connection', true);
   }
+}
+
+// ═══════════════════════════════════════════════════════
+// POINTS ADJUSTMENT
+// ═══════════════════════════════════════════════════════
+async function savePointsAdj(playerName) {
+  var key = 'adj-' + playerName.replace(/\s/g,'_');
+  var el = document.getElementById(key);
+  if (!el) { toast('Could not find input', true); return; }
+  var val = parseInt(el.value) || 0;
+  await sbUpsert('settings', { key: 'adj_' + playerName, value: val.toString() });
+  toast('Adjustment saved for ' + playerName + ': ' + (val >= 0 ? '+' : '') + val + ' pts ✅');
+  renderLeaderboard();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1694,6 +2031,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (btn.dataset.action === 'saveResult') saveResult(btn.dataset.id);
     if (btn.dataset.action === 'clearResult') clearResult(btn.dataset.id);
   });
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('button[data-action="removeMatch"]');
+    if (btn) { e.preventDefault(); removeKnockoutMatch(btn.dataset.id); }
+  });
 
   // Predict
   document.getElementById('btn-refresh-preds').addEventListener('click', function() {
@@ -1723,6 +2064,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('btn-change-code').addEventListener('click', changeJoinCode);
   document.getElementById('btn-copy-code').addEventListener('click', copyJoinCode);
   document.getElementById('btn-export').addEventListener('click', exportData);
+  document.getElementById('btn-add-match').addEventListener('click', addKnockoutMatch);
   document.getElementById('btn-clear-preds').addEventListener('click', clearAllPredictions);
   document.getElementById('btn-clear-results').addEventListener('click', clearAllResults);
   document.getElementById('btn-clear-all').addEventListener('click', clearEverything);

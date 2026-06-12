@@ -1944,16 +1944,16 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('filter-schedule').addEventListener('change', renderSchedule);
 
   // Results dynamic buttons (save/clear per match)
-  document.getElementById('results-list').addEventListener('click', function(e) {
-    const btn = e.target.closest('button[data-action]');
+  // Single document-level handler for all dynamic data-action buttons
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('button[data-action]');
     if (!btn) return;
     e.preventDefault();
-    if (btn.dataset.action === 'saveResult') saveResult(btn.dataset.id);
-    if (btn.dataset.action === 'clearResult') clearResult(btn.dataset.id);
-  });
-  document.addEventListener('click', function(e) {
-    var btn = e.target.closest('button[data-action="removeMatch"]');
-    if (btn) { e.preventDefault(); removeKnockoutMatch(btn.dataset.id); }
+    var action = btn.dataset.action;
+    if (action === 'saveResult')   { saveResult(btn.dataset.id); }
+    if (action === 'clearResult')  { clearResult(btn.dataset.id); }
+    if (action === 'removeMatch')  { removeKnockoutMatch(btn.dataset.id); }
+    if (action === 'saveAdj')      { savePointsAdj(btn.dataset.player); }
   });
 
   // Predict
@@ -1984,6 +1984,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('btn-change-code').addEventListener('click', changeJoinCode);
   document.getElementById('btn-copy-code').addEventListener('click', copyJoinCode);
   document.getElementById('btn-export').addEventListener('click', exportData);
+  document.getElementById('btn-refresh-results').addEventListener('click', function() { results={}; loadResults().then(renderResults); });
   document.getElementById('btn-add-match').addEventListener('click', addKnockoutMatch);
   document.getElementById('btn-clear-preds').addEventListener('click', clearAllPredictions);
   document.getElementById('btn-clear-results').addEventListener('click', clearAllResults);

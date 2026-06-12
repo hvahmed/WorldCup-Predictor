@@ -1028,7 +1028,8 @@ async function fetchLiveScores() {
   btn.textContent = '⏳ Fetching...'; btn.disabled = true;
   try {
     // Fetch all finished AND live matches
-    const r = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2026', {
+    // Fetch all World Cup 2026 fixtures (no status filter - we filter locally)
+    const r = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2026&timezone=Europe/London', {
       headers: { 'x-apisports-key': cfg.apiKey }
     });
     const data = await r.json();
@@ -1103,8 +1104,9 @@ async function fetchLiveScores() {
 
     var msg = '✅ ' + updated + ' result(s) updated';
     if (added > 0) msg += ', ' + added + ' new match(es) added';
+    msg += ' (' + fixtures.length + ' fixtures from API)';
     status.textContent = msg;
-    toast(msg + ' ⚽');
+    toast(updated > 0 ? msg + ' ⚽' : 'No new results found — API returned ' + fixtures.length + ' fixtures');
     renderResults();
     renderSchedule();
   } catch(e) {
@@ -1158,7 +1160,7 @@ async function saveFinalists() {
     { key:'finalist1', value: officialFinalists.f1 },
     { key:'finalist2', value: officialFinalists.f2 },
     { key:'winner', value: officialFinalists.winner }
-  ]);
+  ], 'key');
   renderFinalistsDisplay();
   toast('Finalists saved ✅');
 }
@@ -1170,7 +1172,7 @@ async function saveOfficialAwards() {
     { key:'official_ball', value: document.getElementById('off-ball').value.trim() },
     { key:'official_glove', value: document.getElementById('off-glove').value.trim() },
     { key:'official_young', value: document.getElementById('off-young').value.trim() }
-  ]);
+  ], 'key');
   toast('Award winners saved ✅');
 }
 
@@ -1209,7 +1211,7 @@ async function saveAwardPredictions() {
   AWARD_KEYS.forEach(function(k) { awards[k] = document.getElementById('aw-' + k).value.trim(); });
   const rows = AWARD_KEYS.map(function(k) { return { key: 'award_'+k+'_'+profile.name, value: awards[k] }; });
   if (cfg.sbUrl) {
-    await sbUpsert('settings', rows);
+    await sbUpsert('settings', rows, 'key');
     toast('Award picks saved ✅');
   } else {
     localStorage.setItem('wcp_awards_' + profile.name, JSON.stringify(awards));
@@ -1841,7 +1843,7 @@ async function loadExtraMatches() {
 }
 
 async function saveExtraMatches() {
-  await sbUpsert('settings', { key: 'extra_matches', value: JSON.stringify(extraMatches) });
+  await sbUpsert('settings', { key: 'extra_matches', value: JSON.stringify(extraMatches) }, 'key');
 }
 
 function addKnockoutMatch() {
@@ -1952,7 +1954,7 @@ async function savePointsAdj(playerName) {
   }
   if (!el) { toast('Could not find input for ' + playerName, true); return; }
   var val = parseInt(el.value) || 0;
-  await sbUpsert('settings', { key: 'adj_' + playerName, value: val.toString() });
+  await sbUpsert('settings', { key: 'adj_' + playerName, value: val.toString() }, 'key');
   toast('Adjustment saved for ' + playerName + ': ' + (val >= 0 ? '+' : '') + val + ' pts ✅');
   renderLeaderboard();
 }

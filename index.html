@@ -683,14 +683,16 @@ async function sbGet(table, qs) {
   return r.json();
 }
 async function sbUpsert(table, body, onConflict) {
-  const url = cfg.sbUrl+'/rest/v1/'+table + (onConflict ? '?on_conflict='+encodeURIComponent(onConflict) : '');
-  const headers = {
-    ...sbH(),
-    'Prefer': 'resolution=merge-duplicates,return=minimal'
-  };
+  // Supabase requires on_conflict WITHOUT encoding for merge-duplicates to work
+  const url = cfg.sbUrl+'/rest/v1/'+table + (onConflict ? '?on_conflict=' + onConflict : '');
   return fetch(url, {
-    method:'POST',
-    headers: headers,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': cfg.sbKey,
+      'Authorization': 'Bearer ' + cfg.sbKey,
+      'Prefer': 'resolution=merge-duplicates,return=minimal'
+    },
     body: JSON.stringify(body)
   });
 }
@@ -857,7 +859,7 @@ async function saveProfile() {
   localStorage.setItem('wcp_profile', JSON.stringify(profile));
   document.getElementById('pred-name-display').textContent = name;
   if (cfg.sbUrl) {
-    await sbUpsert('players', { name, role });
+    await sbUpsert('players', { name, role }, 'name');
     toast('Profile saved & synced ✅');
     loadPlayers();
   } else {
@@ -944,9 +946,21 @@ async function saveResult(id) {
   var penWinner = penSel ? penSel.value : null;
   var m = MATCHES.find(function(x){ return x.id===id; });
   results[id] = { home: h, away: a, pen_winner: penWinner||null, home_team: m?m.home:'', away_team: m?m.away:'' };
-  await sbUpsert('results', { match_id: id, home_score: h, away_score: a, pen_winner: penWinner||null, updated_at: new Date().toISOString() });
-  toast('Result saved ✅');
-  renderResults();
+  try {
+    var resp = await sbUpsert('results', {
+      match_id: id, home_score: h, away_score: a,
+      pen_winner: penWinner||null, updated_at: new Date().toISOString()
+    }, 'match_id');
+    if (resp.ok || resp.status === 200 || resp.status === 201 || resp.status === 204) {
+      toast('Result saved ✅ ' + h + '-' + a);
+      renderResults();
+    } else {
+      var errText = await resp.text();
+      toast('❌ Save failed (' + resp.status + '): ' + errText.substring(0, 100), true);
+    }
+  } catch(e) {
+    toast('❌ Error saving: ' + e.message, true);
+  }
 }
 
 async function clearResult(id) {
@@ -1817,34 +1831,49 @@ async function clearEverything() {
 // POINTS ADJUSTMENT
 // ═══════════════════════════════════════════════════════
 async function savePointsAdj(playerName) {
-  // Find the input - try both underscore and space versions
   var inputId = 'adj-' + playerName.replace(/\s/g, '_');
   var el = document.getElementById(inputId) || document.getElementById('adj-' + playerName);
   if (!el) { toast('Input not found for: ' + playerName, true); return; }
-  
+
   var val = parseInt(el.value) || 0;
   var key = 'adj_' + playerName;
-  
-  // Use direct fetch with explicit upsert headers for settings table
+  var h = {
+    'Content-Type': 'application/json',
+    'apikey': cfg.sbKey,
+    'Authorization': 'Bearer ' + cfg.sbKey
+  };
+
   try {
-    var resp = await fetch(cfg.sbUrl + '/rest/v1/settings?on_conflict=key', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': cfg.sbKey,
-        'Authorization': 'Bearer ' + cfg.sbKey,
-        'Prefer': 'resolution=merge-duplicates,return=representation'
-      },
-      body: JSON.stringify({ key: key, value: String(val) })
+    // First try to update existing row
+    var patchResp = await fetch(cfg.sbUrl + '/rest/v1/settings?key=eq.' + encodeURIComponent(key), {
+      method: 'PATCH',
+      headers: { ...h, 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ value: String(val) })
     });
-    var text = await resp.text();
-    if (resp.ok || resp.status === 200 || resp.status === 201) {
-      toast('✅ Adjustment saved: ' + (val >= 0 ? '+' : '') + val + ' pts for ' + playerName);
-      // Force leaderboard reload with cleared cache
-      results = {};
+
+    // If no row existed (nothing updated), insert a new one
+    if (patchResp.status === 200 || patchResp.status === 204) {
+      // Check if it actually updated something by trying a GET
+      var getResp = await fetch(cfg.sbUrl + '/rest/v1/settings?key=eq.' + encodeURIComponent(key), { headers: h });
+      var rows = await getResp.json();
+      if (!rows || !rows.length) {
+        // Row didn't exist - insert it
+        var insertResp = await fetch(cfg.sbUrl + '/rest/v1/settings', {
+          method: 'POST',
+          headers: { ...h, 'Prefer': 'return=minimal' },
+          body: JSON.stringify({ key: key, value: String(val) })
+        });
+        if (!insertResp.ok && insertResp.status !== 201) {
+          var t = await insertResp.text();
+          toast('❌ Insert failed: ' + t.substring(0, 80), true);
+          return;
+        }
+      }
+      toast('✅ +' + val + ' pts adjustment saved for ' + playerName);
       renderLeaderboard();
     } else {
-      toast('❌ Save failed (' + resp.status + '): ' + text.substring(0, 80), true);
+      var errText = await patchResp.text();
+      toast('❌ Failed (' + patchResp.status + '): ' + errText.substring(0, 80), true);
     }
   } catch(e) {
     toast('❌ Error: ' + e.message, true);

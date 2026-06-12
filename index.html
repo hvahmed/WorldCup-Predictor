@@ -1943,9 +1943,14 @@ async function clearEverything() {
 // POINTS ADJUSTMENT
 // ═══════════════════════════════════════════════════════
 async function savePointsAdj(playerName) {
-  var key = 'adj-' + playerName.replace(/\s/g,'_');
-  var el = document.getElementById(key);
-  if (!el) { toast('Could not find input', true); return; }
+  // Input ID uses underscores in place of spaces
+  var inputId = 'adj-' + playerName.replace(/\s/g,'_');
+  var el = document.getElementById(inputId);
+  if (!el) {
+    // Fallback: try exact name
+    el = document.getElementById('adj-' + playerName);
+  }
+  if (!el) { toast('Could not find input for ' + playerName, true); return; }
   var val = parseInt(el.value) || 0;
   await sbUpsert('settings', { key: 'adj_' + playerName, value: val.toString() });
   toast('Adjustment saved for ' + playerName + ': ' + (val >= 0 ? '+' : '') + val + ' pts ✅');

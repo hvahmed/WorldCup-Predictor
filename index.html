@@ -225,14 +225,8 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
         </div>
       </div>
       <div class="card">
-        <div class="card-title">🔑 <span class="accent">API-Football</span> Config</div>
-        <div class="info-box">Sign up free at <strong>dashboard.api-football.com</strong> — no credit card. Your key is on the dashboard home page.</div>
-        <label class="field-label">API-Football Key</label>
-        <input type="text" id="api-key" placeholder="your-api-key">
         <div style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <button type="button" class="btn btn-dark" id="btn-test-api">Test API</button>
 
-          <span id="api-status" style="font-size:13px;font-family:'Barlow Condensed'"></span>
         </div>
 
       </div>
@@ -656,7 +650,7 @@ alter table results add column if not exists pen_winner text;`;
 // ═══════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════
-let cfg = { sbUrl:'', sbKey:'', apiKey:'', adminPw:'admin123', joinCode:'WORLDCUP26' };
+let cfg = { sbUrl:'', sbKey:'', adminPw:'admin123', joinCode:'WORLDCUP26' };
 let profile = { name:'', role:'player' };
 let results = {};        // matchId -> {home, away}
 let officialFinalists = {};
@@ -765,7 +759,7 @@ function initApp() {
   // Restore saved config into fields
   if (cfg.sbUrl) document.getElementById('sb-url').value = cfg.sbUrl;
   if (cfg.sbKey) document.getElementById('sb-key').value = cfg.sbKey;
-  if (cfg.apiKey) document.getElementById('api-key').value = cfg.apiKey;
+
   if (profile.name) {
     document.getElementById('my-name').value = profile.name;
     document.getElementById('my-role').value = profile.role || 'player';
@@ -833,7 +827,6 @@ function showTab(tabsId, tabId) {
 function saveCfgFromFields() {
   cfg.sbUrl = document.getElementById('sb-url').value.trim().replace(/\/$/, '');
   cfg.sbKey = document.getElementById('sb-key').value.trim();
-  cfg.apiKey = document.getElementById('api-key').value.trim();
   saveCfg();
 }
 
@@ -851,22 +844,6 @@ async function testSB() {
   } catch(e) { el.textContent = '❌ Failed'; el.style.color = '#dc2626'; }
 }
 
-async function testAPI() {
-  saveCfgFromFields();
-  const el = document.getElementById('api-status');
-  if (!cfg.apiKey) { el.textContent = '❌ No key'; el.style.color = '#dc2626'; return; }
-  el.textContent = 'Testing...'; el.style.color = '#6b7280';
-  try {
-    const r = await fetch('https://v3.football.api-sports.io/status', {
-      headers: { 'x-apisports-key': cfg.apiKey }
-    });
-    const d = await r.json();
-    if (d.response && d.response.requests) {
-      el.textContent = '✅ OK ('+d.response.requests.current+'/'+d.response.requests.limit_day+' today)';
-      el.style.color = '#16a34a';
-    } else { el.textContent = '❌ Invalid key'; el.style.color = '#dc2626'; }
-  } catch(e) { el.textContent = '❌ Failed'; el.style.color = '#dc2626'; }
-}
 
 // ═══════════════════════════════════════════════════════
 // PROFILE
@@ -1918,13 +1895,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Setup
   document.getElementById('btn-test-sb').addEventListener('click', testSB);
-  document.getElementById('btn-test-api').addEventListener('click', testAPI);
+
   document.getElementById('btn-debug-api').addEventListener('click', debugAPIFixtures);
   document.getElementById('btn-save-profile').addEventListener('click', saveProfile);
   document.getElementById('btn-refresh-players').addEventListener('click', loadPlayers);
   document.getElementById('sb-url').addEventListener('change', saveCfgFromFields);
   document.getElementById('sb-key').addEventListener('change', saveCfgFromFields);
-  document.getElementById('api-key').addEventListener('change', saveCfgFromFields);
+
 
   // Matches
 

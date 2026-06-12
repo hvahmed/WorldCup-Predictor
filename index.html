@@ -668,6 +668,15 @@ function loadState() {
   } catch(e) {}
 }
 
+function ensureCfg() {
+  // Re-read from fields in case user updated them without saving
+  var urlEl = document.getElementById('sb-url');
+  var keyEl = document.getElementById('sb-key');
+  if (urlEl && urlEl.value.trim()) cfg.sbUrl = urlEl.value.trim().replace(/\/$/, '');
+  if (keyEl && keyEl.value.trim()) cfg.sbKey = keyEl.value.trim();
+  saveCfg();
+}
+
 function saveCfg() {
   localStorage.setItem('wcp_cfg', JSON.stringify(cfg));
 }
@@ -939,6 +948,8 @@ function renderResults() {
 }
 
 async function saveResult(id) {
+  ensureCfg();
+  if (!cfg.sbUrl || !cfg.sbKey) { toast('❌ Supabase not configured — go to Setup and re-enter your URL and key', true); return; }
   const h = parseInt(document.getElementById('rh-' + id).value);
   const a = parseInt(document.getElementById('ra-' + id).value);
   if (isNaN(h) || isNaN(a)) { toast('Enter valid scores', true); return; }
@@ -1831,6 +1842,8 @@ async function clearEverything() {
 // POINTS ADJUSTMENT
 // ═══════════════════════════════════════════════════════
 async function savePointsAdj(playerName) {
+  ensureCfg();
+  if (!cfg.sbUrl || !cfg.sbKey) { toast('❌ Supabase not configured — go to Setup and re-enter your URL and key', true); return; }
   var inputId = 'adj-' + playerName.replace(/\s/g, '_');
   var el = document.getElementById(inputId) || document.getElementById('adj-' + playerName);
   if (!el) { toast('Input not found for: ' + playerName, true); return; }

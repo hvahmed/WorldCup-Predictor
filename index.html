@@ -814,7 +814,7 @@ function showPage(pageId) {
     renderSchedule();
     loadOfficialData();
   }
-  if (pageId === 'predict') { loadMyPredictions(); }
+  if (pageId === 'predict') { results = {}; loadResults().then(function(){ loadMyPredictions(); }); }
   if (pageId === 'leaderboard') { renderLeaderboard(); }
 }
 
@@ -1476,6 +1476,12 @@ async function savePrediction(matchId, hVal, aVal) {
 // ═══════════════════════════════════════════════════════
 // OTHERS' PREDICTIONS
 // ═══════════════════════════════════════════════════════
+async function reloadAndShowOthers() {
+  results = {};
+  await loadResults();
+  await loadOtherPredictions();
+}
+
 async function loadOtherPredictions() {
   const el = document.getElementById('others-list');
   if (!cfg.sbUrl) { el.innerHTML = '<div class="empty">Connect Supabase first.</div>'; return; }
@@ -1960,8 +1966,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Predict
   document.getElementById('btn-refresh-preds').addEventListener('click', function() {
-    myPredictions = {}; // clear local cache to force fresh load
-    loadMyPredictions();
+    myPredictions = {};
+    results = {};
+    loadResults().then(function(){ loadMyPredictions(); });
   });
   document.getElementById('btn-open-awards-modal').addEventListener('click', function() {
     loadMyAwards().then(function(a) { openAwardsModal(a); });

@@ -229,10 +229,12 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
         <div class="info-box">Sign up free at <strong>dashboard.api-football.com</strong> — no credit card. Your key is on the dashboard home page.</div>
         <label class="field-label">API-Football Key</label>
         <input type="text" id="api-key" placeholder="your-api-key">
-        <div style="margin-top:12px;display:flex;align-items:center;gap:10px">
+        <div style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <button type="button" class="btn btn-dark" id="btn-test-api">Test API</button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-debug-api">🔍 Debug Fixtures</button>
           <span id="api-status" style="font-size:13px;font-family:'Barlow Condensed'"></span>
         </div>
+        <div id="api-debug" style="margin-top:8px;font-size:11px;font-family:monospace;background:#1a2236;color:#a5f3b8;padding:10px;border-radius:6px;display:none;white-space:pre-wrap;max-height:200px;overflow-y:auto"></div>
       </div>
     </div>
     <div>
@@ -688,11 +690,14 @@ async function sbGet(table, qs) {
   return r.json();
 }
 async function sbUpsert(table, body, onConflict) {
-  const prefer = 'resolution=merge-duplicates' + (onConflict ? ',return=minimal' : '');
-  const url = cfg.sbUrl+'/rest/v1/'+table + (onConflict ? '?on_conflict='+onConflict : '');
+  const url = cfg.sbUrl+'/rest/v1/'+table + (onConflict ? '?on_conflict='+encodeURIComponent(onConflict) : '');
+  const headers = {
+    ...sbH(),
+    'Prefer': 'resolution=merge-duplicates,return=minimal'
+  };
   return fetch(url, {
     method:'POST',
-    headers: { ...sbH(), 'Prefer': prefer },
+    headers: headers,
     body: JSON.stringify(body)
   });
 }
@@ -845,6 +850,35 @@ async function testSB() {
     if (Array.isArray(r)) { el.textContent = '✅ Connected!'; el.style.color = '#16a34a'; }
     else { el.textContent = '❌ Check URL/Key'; el.style.color = '#dc2626'; }
   } catch(e) { el.textContent = '❌ Failed'; el.style.color = '#dc2626'; }
+}
+
+async function debugAPIFixtures() {
+  if (!cfg.apiKey) { toast('Add API key first', true); return; }
+  var debugEl = document.getElementById('api-debug');
+  debugEl.style.display = 'block';
+  debugEl.textContent = 'Fetching...';
+  try {
+    var r = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2026&last=5', {
+      headers: { 'x-apisports-key': cfg.apiKey }
+    });
+    var data = await r.json();
+    var out = 'Status: ' + r.status + '\n';
+    out += 'Errors: ' + JSON.stringify(data.errors) + '\n';
+    out += 'Results count: ' + (data.results||0) + '\n\n';
+    if (data.response && data.response.length) {
+      data.response.forEach(function(fix, i) {
+        out += i+'. '+fix.teams.home.name+' '+fix.goals.home+' - '+fix.goals.away+' '+fix.teams.away.name;
+        out += ' ['+fix.fixture.status.short+'] '+fix.fixture.date+'\n';
+        out += '   Round: '+fix.league.round+'\n';
+      });
+    } else {
+      out += 'No fixtures returned.\n';
+      out += 'Full response: ' + JSON.stringify(data).substring(0,300);
+    }
+    debugEl.textContent = out;
+  } catch(e) {
+    debugEl.textContent = 'Error: ' + e.message;
+  }
 }
 
 async function testAPI() {
@@ -1028,12 +1062,32 @@ async function fetchLiveScores() {
   btn.textContent = '⏳ Fetching...'; btn.disabled = true;
   try {
     // Fetch all finished AND live matches
-    // Fetch all World Cup 2026 fixtures (no status filter - we filter locally)
-    const r = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2026&timezone=Europe/London', {
+    // Try multiple league IDs - FIFA World Cup 2026 might be league 1 or different
+    // First try league=1 (standard World Cup ID)
+    var apiResp = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2026&timezone=Europe%2FLondon', {
       headers: { 'x-apisports-key': cfg.apiKey }
     });
-    const data = await r.json();
-    const fixtures = data.response || [];
+    var data = await apiResp.json();
+    var fixtures = data.response || [];
+    
+    // If no fixtures found, try without season filter (in case 2026 not indexed yet)
+    if (!fixtures.length) {
+      apiResp = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2026', {
+        headers: { 'x-apisports-key': cfg.apiKey }
+      });
+      data = await apiResp.json();
+      fixtures = data.response || [];
+    }
+
+    // Show diagnostic info
+    console.log('API response:', JSON.stringify(data).substring(0, 500));
+    console.log('Fixtures found:', fixtures.length);
+    if (data.errors && Object.keys(data.errors).length) {
+      status.textContent = '❌ API Error: ' + JSON.stringify(data.errors);
+      toast('API error — check console for details', true);
+      btn.textContent = '🔄 Fetch Live Scores'; btn.disabled = false;
+      return;
+    }
     const norm = function(t) { return (t||'').toLowerCase().replace(/[^a-z]/g, ''); };
     let updated = 0;
     let added = 0;
@@ -2004,6 +2058,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Setup
   document.getElementById('btn-test-sb').addEventListener('click', testSB);
   document.getElementById('btn-test-api').addEventListener('click', testAPI);
+  document.getElementById('btn-debug-api').addEventListener('click', debugAPIFixtures);
   document.getElementById('btn-save-profile').addEventListener('click', saveProfile);
   document.getElementById('btn-refresh-players').addEventListener('click', loadPlayers);
   document.getElementById('sb-url').addEventListener('change', saveCfgFromFields);

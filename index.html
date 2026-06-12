@@ -1843,50 +1843,39 @@ async function clearEverything() {
 // ═══════════════════════════════════════════════════════
 async function savePointsAdj(playerName) {
   ensureCfg();
-  if (!cfg.sbUrl || !cfg.sbKey) { toast('❌ Supabase not configured — go to Setup and re-enter your URL and key', true); return; }
+  if (!cfg.sbUrl || !cfg.sbKey) { toast('❌ Supabase not configured', true); return; }
   var inputId = 'adj-' + playerName.replace(/\s/g, '_');
   var el = document.getElementById(inputId) || document.getElementById('adj-' + playerName);
   if (!el) { toast('Input not found for: ' + playerName, true); return; }
 
   var val = parseInt(el.value) || 0;
   var key = 'adj_' + playerName;
-  var h = {
-    'Content-Type': 'application/json',
-    'apikey': cfg.sbKey,
-    'Authorization': 'Bearer ' + cfg.sbKey
-  };
 
   try {
-    // First try to update existing row
-    var patchResp = await fetch(cfg.sbUrl + '/rest/v1/settings?key=eq.' + encodeURIComponent(key), {
-      method: 'PATCH',
-      headers: { ...h, 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ value: String(val) })
+    // Step 1: Delete any existing row for this key
+    await fetch(cfg.sbUrl + '/rest/v1/settings?key=eq.' + encodeURIComponent(key), {
+      method: 'DELETE',
+      headers: { 'apikey': cfg.sbKey, 'Authorization': 'Bearer ' + cfg.sbKey }
     });
 
-    // If no row existed (nothing updated), insert a new one
-    if (patchResp.status === 200 || patchResp.status === 204) {
-      // Check if it actually updated something by trying a GET
-      var getResp = await fetch(cfg.sbUrl + '/rest/v1/settings?key=eq.' + encodeURIComponent(key), { headers: h });
-      var rows = await getResp.json();
-      if (!rows || !rows.length) {
-        // Row didn't exist - insert it
-        var insertResp = await fetch(cfg.sbUrl + '/rest/v1/settings', {
-          method: 'POST',
-          headers: { ...h, 'Prefer': 'return=minimal' },
-          body: JSON.stringify({ key: key, value: String(val) })
-        });
-        if (!insertResp.ok && insertResp.status !== 201) {
-          var t = await insertResp.text();
-          toast('❌ Insert failed: ' + t.substring(0, 80), true);
-          return;
-        }
-      }
-      toast('✅ +' + val + ' pts adjustment saved for ' + playerName);
+    // Step 2: Insert fresh row
+    var insertResp = await fetch(cfg.sbUrl + '/rest/v1/settings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': cfg.sbKey,
+        'Authorization': 'Bearer ' + cfg.sbKey,
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify({ key: key, value: String(val) })
+    });
+
+    if (insertResp.ok || insertResp.status === 201) {
+      toast('✅ Adjustment saved: ' + (val >= 0 ? '+' : '') + val + ' pts for ' + playerName);
       renderLeaderboard();
     } else {
-      var errText = await patchResp.text();
-      toast('❌ Failed (' + patchResp.status + '): ' + errText.substring(0, 80), true);
+      var errText = await insertResp.text();
+      toast('❌ Failed (' + insertResp.status + '): ' + errText.substring(0, 100), true);
     }
   } catch(e) {
     toast('❌ Error: ' + e.message, true);

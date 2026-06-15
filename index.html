@@ -78,9 +78,9 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
 .tab-btn.active{color:var(--gold);border-bottom-color:var(--gold)}
 .tab-pane{display:none}.tab-pane.active{display:block}
 .lb-table{width:100%;border-collapse:collapse}
-.lb-table th{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);padding:10px 14px;text-align:left;border-bottom:2px solid var(--border);background:var(--surface2)}
+.lb-table th{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);padding:10px 10px;text-align:left;border-bottom:2px solid var(--border);background:var(--surface2)}
 .lb-table th:last-child,.lb-table td:last-child{text-align:right}
-.lb-table td{padding:12px 14px;border-bottom:1px solid var(--border);font-size:14px}
+.lb-table td{padding:10px 10px;border-bottom:1px solid var(--border);font-size:13px}
 .lb-table tr:last-child td{border-bottom:none}
 .lb-table tr:hover td{background:var(--surface2)}
 .rank{font-family:'Bebas Neue',sans-serif;font-size:20px;width:30px;display:inline-block;text-align:center}
@@ -302,7 +302,9 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
     <button type="button" class="btn btn-outline btn-sm" id="btn-refresh-lb">↻ Refresh</button>
   </div>
   <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
-    <div id="lb-content"><div class="empty" style="padding:40px">Connect Supabase to see standings.</div></div>
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <div id="lb-content" style="min-width:400px"><div class="empty" style="padding:40px">Connect Supabase to see standings.</div></div>
+    </div>
   </div>
   <div class="card">
     <div class="card-title">📊 <span class="accent">Scoring</span> Rules</div>

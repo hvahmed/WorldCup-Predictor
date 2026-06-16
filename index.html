@@ -276,6 +276,7 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
     <span class="pred-name" id="pred-name-display">—</span>
     <button type="button" class="btn btn-outline btn-sm" id="btn-refresh-preds">↻ Refresh</button>
     <button type="button" class="btn btn-gold btn-sm" id="btn-open-awards-modal">🏅 My Award Picks</button>
+    <button type="button" class="btn btn-outline btn-sm" id="btn-see-awards-others">👥 Everyone&#39;s Award &amp; Final Picks</button>
   </div>
   <div class="card" id="awards-summary-card">
     <div class="card-title">🏅 <span class="accent">My</span> Award Predictions</div>
@@ -1446,6 +1447,8 @@ async function renderGroupFinishPredictions() {
 
   if(!locked) {
     html += '<div style="margin-top:6px"><button type="button" class="btn btn-gold" id="btn-save-gf-preds">Save Group Finish Predictions ✓</button></div>';
+  } else {
+    html += '<div style="margin-top:6px"><button type="button" class="btn btn-outline" id="btn-see-gf-others">&#128101; See Group Picks</button></div>';
   }
 
   el.innerHTML = html;
@@ -1453,6 +1456,8 @@ async function renderGroupFinishPredictions() {
   // Attach save button listener if not locked
   if(!locked) {
     document.getElementById('btn-save-gf-preds').addEventListener('click', saveGroupFinishPredictions);
+  } else {
+    document.getElementById('btn-see-gf-others').addEventListener('click', showGroupFinishOthers);
   }
 }
 
@@ -1485,6 +1490,135 @@ function calcGroupFinishPts(settMap, playerName) {
     if(off2 && pred2 && norm(pred2)===norm(off2)) pts += 1;
   });
   return pts;
+}
+
+
+// ── Show everyone's group finish predictions ──
+async function showGroupFinishOthers() {
+  var panel = document.getElementById('others-panel');
+  var title = document.getElementById('others-panel-title');
+  var panelContent = document.getElementById('others-panel-content');
+  panel.classList.add('open');
+  title.textContent = 'Group Finish Picks — Everyone';
+  panelContent.innerHTML = '<div class="empty">Loading...</div>';
+  if(!cfg.sbUrl){ panelContent.innerHTML = '<div class="empty">Connect Supabase first.</div>'; return; }
+
+  var players = await sbGet('players', '?order=name');
+  var settings = await sbGet('settings', '');
+  if(!players){ panelContent.innerHTML = '<div class="empty">Could not load.</div>'; return; }
+
+  var map = {};
+  (settings||[]).forEach(function(r){ map[r.key] = r.value; });
+  var norm = function(t){ return (t||'').trim().toLowerCase(); };
+
+  var html = '<div style="overflow-x:auto"><table class="others-table" style="min-width:500px">';
+  html += '<thead><tr><th>Group</th><th>Official</th>';
+  players.forEach(function(pl){
+    html += '<th>'+ flagImg(pl.name) +' '+ pl.name +(pl.name===profile.name?' <span class="admin-pip">YOU</span>':'')+'</th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  GROUPS_LIST.forEach(function(group){
+    var off1 = map['gf_official_1st_'+group]||'';
+    var off2 = map['gf_official_2nd_'+group]||'';
+    var officialStr = off1 ? (flagImg(off1)+' '+off1+'<br>'+flagImg(off2)+' '+off2) : '—';
+
+    // 1st place row
+    html += '<tr><td rowspan="2"><strong>'+group+'</strong></td>';
+    html += '<td>'+(off1?'🥇 '+flagImg(off1)+' '+off1:'—')+'</td>';
+    players.forEach(function(pl){
+      var pred = map['gf_pred_1st_'+group+'_'+pl.name]||'—';
+      var correct = off1 && pred !== '—' && norm(pred)===norm(off1);
+      var wrong = off1 && pred !== '—' && norm(pred)!==norm(off1);
+      var isYou = pl.name===profile.name;
+      html += '<td style="'+(isYou?'background:var(--gold-bg);font-weight:700':'')+'">'+
+        (pred==='—'?'—':flagImg(pred)+' '+pred)+
+        (correct?' <span class="badge badge-gold" style="font-size:9px">✓</span>':'')+(wrong?' <span class="badge badge-red" style="font-size:9px">✗</span>':'')+
+      '</td>';
+    });
+    html += '</tr>';
+
+    // 2nd place row
+    html += '<tr style="border-bottom:2px solid var(--border)">';
+    html += '<td>'+(off2?'🥈 '+flagImg(off2)+' '+off2:'—')+'</td>';
+    players.forEach(function(pl){
+      var pred = map['gf_pred_2nd_'+group+'_'+pl.name]||'—';
+      var correct = off2 && pred !== '—' && norm(pred)===norm(off2);
+      var wrong = off2 && pred !== '—' && norm(pred)!==norm(off2);
+      var isYou = pl.name===profile.name;
+      html += '<td style="'+(isYou?'background:var(--gold-bg);font-weight:700':'')+'">'+
+        (pred==='—'?'—':flagImg(pred)+' '+pred)+
+        (correct?' <span class="badge badge-gold" style="font-size:9px">✓</span>':'')+(wrong?' <span class="badge badge-red" style="font-size:9px">✗</span>':'')+
+      '</td>';
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+  panelContent.innerHTML = html;
+}
+
+
+// ── Show everyone's award and finalist predictions ──
+async function showAwardOthers() {
+  var panel = document.getElementById('others-panel');
+  var title = document.getElementById('others-panel-title');
+  var panelContent = document.getElementById('others-panel-content');
+  panel.classList.add('open');
+  title.textContent = 'Award & Finalist Picks';
+  panelContent.innerHTML = '<div class="empty">Loading...</div>';
+  if(!cfg.sbUrl){ panelContent.innerHTML = '<div class="empty">Connect Supabase first.</div>'; return; }
+
+  var players = await sbGet('players', '?order=name');
+  var settings = await sbGet('settings', '');
+  if(!players){ panelContent.innerHTML = '<div class="empty">Could not load.</div>'; return; }
+
+  var map = {};
+  (settings||[]).forEach(function(r){ map[r.key] = r.value; });
+  var norm = function(t){ return (t||'').trim().toLowerCase(); };
+  var ofSet = [norm(officialFinalists.f1), norm(officialFinalists.f2)].filter(Boolean);
+
+  var awardRows = [
+    { key:'f1',     label:'🏆 Finalist 1',       official: officialFinalists.f1,     isFinalist: true },
+    { key:'f2',     label:'🏆 Finalist 2',        official: officialFinalists.f2,     isFinalist: true },
+    { key:'winner', label:'🥇 Champion',           official: officialFinalists.winner, isFinalist: false },
+    { key:'boot',   label:'👟 Golden Boot',        official: map['official_boot']||'', isFinalist: false },
+    { key:'ball',   label:'⚽ Golden Ball',        official: map['official_ball']||'', isFinalist: false },
+    { key:'glove',  label:'🧤 Golden Glove',       official: map['official_glove']||'', isFinalist: false },
+    { key:'young',  label:'🌟 Best Young Player',  official: map['official_young']||'', isFinalist: false },
+  ];
+
+  var html = '<div style="overflow-x:auto"><table class="others-table" style="min-width:400px">';
+  html += '<thead><tr><th>Award</th><th>Official</th>';
+  players.forEach(function(pl){
+    html += '<th>'+flagImg(pl.name)+' '+pl.name+(pl.name===profile.name?' <span class="admin-pip">YOU</span>':'')+'</th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  awardRows.forEach(function(award){
+    html += '<tr>';
+    html += '<td><strong>'+award.label+'</strong></td>';
+    html += '<td>'+(award.official ? award.official : '<span style="color:var(--muted)">—</span>')+'</td>';
+    players.forEach(function(pl){
+      var pred = map['award_'+award.key+'_'+pl.name] || '—';
+      var correct = false, wrong = false;
+      if(award.official && pred !== '—'){
+        if(award.isFinalist) correct = ofSet.includes(norm(pred));
+        else correct = norm(pred) === norm(award.official);
+        wrong = !correct;
+      }
+      var isYou = pl.name === profile.name;
+      html += '<td style="'+(isYou?'background:var(--gold-bg);font-weight:700':'')+'">' +
+        pred +
+        (correct ? ' <span class="badge badge-gold" style="font-size:9px">✓</span>' : '') +
+        (wrong   ? ' <span class="badge badge-red"  style="font-size:9px">✗</span>' : '') +
+      '</td>';
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+  panelContent.innerHTML = html;
 }
 
 // TOAST
@@ -1529,6 +1663,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
   document.getElementById('btn-refresh-preds').addEventListener('click',function(){myPredictions={};results={};loadResults().then(function(){loadMyPredictions();});});
   document.getElementById('btn-open-awards-modal').addEventListener('click',function(){loadMyAwards().then(function(a){openAwardsModal(a);});});
+  document.getElementById('btn-see-awards-others').addEventListener('click', showAwardOthers);
 
   document.getElementById('btn-skip-awards').addEventListener('click',closeAwardsModal);
   document.getElementById('btn-save-awards-modal').addEventListener('click',saveAwardPredictions);

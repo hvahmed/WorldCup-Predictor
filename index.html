@@ -215,6 +215,7 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
 <div class="page" id="page-matches">
   <div class="tabs" id="tabs-matches">
     <button type="button" class="tab-btn active admin-only-tab" data-tab="tab-results">Results (Admin)</button>
+    <button type="button" class="tab-btn admin-only-tab" data-tab="tab-group-finishes">Group Finishes</button>
     <button type="button" class="tab-btn admin-only-tab" data-tab="tab-awards-admin">Finalists & Awards</button>
     <button type="button" class="tab-btn" data-tab="tab-schedule">Full Schedule</button>
   </div>
@@ -225,6 +226,16 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
       <button type="button" class="btn btn-outline btn-sm" id="btn-refresh-results">↻ Refresh Results</button>
     </div>
     <div id="results-list"></div>
+  </div>
+  <div class="tab-pane" id="tab-group-finishes">
+    <div class="card">
+      <div class="card-title">🏁 <span class="accent">Official</span> Group Finishes</div>
+      <div class="info-box">Admin: enter the top 2 teams for each group once the group stage is complete. This will score all players' group finish predictions.</div>
+      <div id="admin-group-finishes-list"></div>
+      <div style="margin-top:16px">
+        <button type="button" class="btn btn-gold" id="btn-save-group-finishes">Save All Group Finishes</button>
+      </div>
+    </div>
   </div>
   <div class="tab-pane" id="tab-awards-admin">
     <div class="card">
@@ -273,6 +284,7 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
   <!-- Stage sub-tabs -->
   <div class="tabs" id="tabs-stage" style="margin-bottom:14px">
     <button type="button" class="tab-btn active" data-stage="Group Stage">Group Stage</button>
+    <button type="button" class="tab-btn" data-stage="Group Finishes">Group Finishes</button>
     <button type="button" class="tab-btn" data-stage="Round of 32">R32</button>
     <button type="button" class="tab-btn" data-stage="Round of 16">R16</button>
     <button type="button" class="tab-btn" data-stage="Quarter-Final">QF</button>
@@ -315,6 +327,7 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
       <div>🏟️ <strong style="color:var(--text)">+5 pts</strong> — Each finalist correct</div>
       <div>🏆 <strong style="color:var(--text)">+10 pts</strong> — Champion correct</div>
       <div>👟⚽🧤🌟 <strong style="color:var(--text)">+3 pts each</strong> — Award winners correct</div>
+      <div>🏁 <strong style="color:var(--text)">+1 pt each</strong> — Correct 1st or 2nd place finish per group (max +24 pts)</div>
       <div style="margin-top:8px;font-size:12px;color:var(--muted);font-style:italic">Knockout stages: 3pts exact score + correct pen winner · 1pt correct winner (any method)</div>
     </div>
   </div>
@@ -645,7 +658,7 @@ function showPage(pageId){
     var adminTabs=document.querySelectorAll('.admin-only-tab');
     adminTabs.forEach(function(t){t.style.display=isAdmin()?'':'none';});
     if(!isAdmin()) showTab('tabs-matches','tab-schedule');
-    else renderResults();
+    else { renderResults(); renderAdminGroupFinishes(); loadAdminGroupFinishes(); }
     renderSchedule(); loadOfficialData();
   }
   if(pageId==='predict'){ results={}; loadResults().then(function(){loadMyPredictions();}); }
@@ -1229,13 +1242,14 @@ async function renderLeaderboard(){
       var predicted=settMap['award_'+k+'_'+pl.name]||'';
       if(official&&predicted&&norm(official)===norm(predicted)) bonus+=3;
     });
+    var gfPts = calcGroupFinishPts(settMap, pl.name);
     var adj=adjMap[pl.name]||0;
-    return{name:pl.name,total:pts+bonus+adj,pts,bonus,adj,perfect,partial};
+    return{name:pl.name,total:pts+bonus+gfPts+adj,pts,bonus,gfPts,adj,perfect,partial};
   }).sort(function(a,b){return b.total-a.total;});
 
   if(!rows.length){el.innerHTML='<div class="empty" style="padding:40px">No players yet.</div>';return;}
   var adminMode=isAdmin();
-  el.innerHTML='<table class="lb-table"><thead><tr><th>#</th><th>Player</th><th>⭐ Perfect</th><th>✅ Outcome</th><th>🏅 Bonus</th>'+(adminMode?'<th>✏️ Adj</th>':'')+'<th>Points</th></tr></thead><tbody>'+
+  el.innerHTML='<table class="lb-table"><thead><tr><th>#</th><th>Player</th><th>⭐ Perfect</th><th>✅ Outcome</th><th>🏅 Bonus</th><th>🏁 Groups</th>'+(adminMode?'<th>✏️ Adj</th>':'')+'<th>Points</th></tr></thead><tbody>'+
     rows.map(function(r,i){
       var rc=i===0?'r1':i===1?'r2':i===2?'r3':'';
       return '<tr>'+
@@ -1244,6 +1258,7 @@ async function renderLeaderboard(){
         '<td style="color:var(--gold)">'+r.perfect+'</td>'+
         '<td style="color:var(--green)">'+r.partial+'</td>'+
         '<td style="color:var(--blue)">+'+r.bonus+'</td>'+
+        '<td style="color:var(--green)">+'+r.gfPts+'</td>'+
         (adminMode?'<td><div style="display:flex;align-items:center;gap:4px"><input type="number" id="adj-'+r.name.replace(/\s/g,'_')+'" value="'+(r.adj||0)+'" style="width:60px;text-align:center;font-size:13px;padding:4px" placeholder="0"><button type="button" class="btn btn-gold btn-sm" data-action="saveAdj" data-player="'+r.name+'">✓</button></div></td>':'')+
         '<td><span class="pts-big">'+r.total+'</span>'+(r.adj?'<span style="font-size:11px;color:'+(r.adj>0?'var(--green)':'var(--red)')+'"> ('+(r.adj>0?'+':'')+r.adj+' adj)</span>':'')+'</td>'+
       '</tr>';
@@ -1282,6 +1297,196 @@ async function clearAllPredictions(){if(!confirm('Delete ALL predictions? Cannot
 async function clearAllResults(){if(!confirm('Delete ALL results? Cannot be undone.')) return;var r=await sbDeleteAll('results');if(r.ok||r.status===204||r.status===200){results={};toast('All results cleared ✅');}else{var t=await r.text();toast('Delete failed: '+t.substring(0,60),true);}}
 async function clearEverything(){if(!confirm('Clear ALL data? Cannot be undone.')) return;if(!confirm('Final warning — delete everything?')) return;await sbDeleteAll('predictions');await sbDeleteAll('results');await sbDeleteAll('players');await sbDeleteAll('settings');myPredictions={};results={};allPlayers=[];officialFinalists={};officialAwards={};document.getElementById('my-preds-list').innerHTML='<div class="empty">All data cleared.</div>';document.getElementById('players-list').innerHTML='<div class="empty">No players.</div>';document.getElementById('lb-content').innerHTML='<div class="empty" style="padding:40px">No data.</div>';toast('Everything cleared ✅');}
 
+
+// ═══════════════════════════════════════════════════════
+// GROUP FINISHES
+// ═══════════════════════════════════════════════════════
+const GROUP_FINISH_DEADLINE = new Date('2026-06-18T16:00:00Z'); // 18 Jun 17:00 BST = 16:00 UTC
+const GROUPS_LIST = ['Group A','Group B','Group C','Group D','Group E','Group F','Group G','Group H','Group I','Group J','Group K','Group L'];
+
+function groupFinishDeadlinePassed(){ return Date.now() >= GROUP_FINISH_DEADLINE.getTime(); }
+
+function getTeamsForGroup(group) {
+  return MATCHES.filter(function(m){ return m.group === group; })
+    .reduce(function(teams, m){
+      if(teams.indexOf(m.home) === -1) teams.push(m.home);
+      if(teams.indexOf(m.away) === -1) teams.push(m.away);
+      return teams;
+    }, []).sort();
+}
+
+// ── Admin: render group finish entry form ──
+function renderAdminGroupFinishes() {
+  var el = document.getElementById('admin-group-finishes-list');
+  if(!el) return;
+  var html = '';
+  GROUPS_LIST.forEach(function(group) {
+    var teams = getTeamsForGroup(group);
+    var key1 = 'gf_official_1st_' + group;
+    var key2 = 'gf_official_2nd_' + group;
+    html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px">' +
+      '<div style="font-weight:700;font-size:14px;margin-bottom:10px;color:var(--text)">' +
+        '<span class="group-tag" style="margin-right:8px">' + group + '</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:140px">' +
+          '<label class="field-label" style="margin-top:0">🥇 1st Place</label>' +
+          '<select id="admin-gf1-' + group.replace(/ /g,'_') + '" style="width:100%">' +
+            '<option value="">-- Select --</option>' +
+            teams.map(function(t){ return '<option value="'+t+'">'+flagImg(t)+' '+t+'</option>'; }).join('') +
+          '</select>' +
+        '</div>' +
+        '<div style="flex:1;min-width:140px">' +
+          '<label class="field-label" style="margin-top:0">🥈 2nd Place</label>' +
+          '<select id="admin-gf2-' + group.replace(/ /g,'_') + '" style="width:100%">' +
+            '<option value="">-- Select --</option>' +
+            teams.map(function(t){ return '<option value="'+t+'">'+flagImg(t)+' '+t+'</option>'; }).join('') +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  });
+  el.innerHTML = html;
+}
+
+async function loadAdminGroupFinishes() {
+  if(!cfg.sbUrl) return;
+  var data = await sbGet('settings','');
+  var map = {};
+  (data||[]).forEach(function(r){ map[r.key] = r.value; });
+  GROUPS_LIST.forEach(function(group) {
+    var key = group.replace(/ /g,'_');
+    var sel1 = document.getElementById('admin-gf1-'+key);
+    var sel2 = document.getElementById('admin-gf2-'+key);
+    if(sel1 && map['gf_official_1st_'+group]) sel1.value = map['gf_official_1st_'+group];
+    if(sel2 && map['gf_official_2nd_'+group]) sel2.value = map['gf_official_2nd_'+group];
+  });
+}
+
+async function saveAllGroupFinishes() {
+  if(!cfg.sbUrl){ toast('Connect Supabase first', true); return; }
+  var rows = [];
+  GROUPS_LIST.forEach(function(group) {
+    var key = group.replace(/ /g,'_');
+    var sel1 = document.getElementById('admin-gf1-'+key);
+    var sel2 = document.getElementById('admin-gf2-'+key);
+    if(sel1) rows.push({ key: 'gf_official_1st_'+group, value: sel1.value });
+    if(sel2) rows.push({ key: 'gf_official_2nd_'+group, value: sel2.value });
+  });
+  await sbUpsert('settings', rows, 'key');
+  toast('Group finishes saved ✅');
+}
+
+// ── Player: render group finish predictions ──
+async function renderGroupFinishPredictions() {
+  var el = document.getElementById('my-preds-list');
+  if(!el) return;
+  el.innerHTML = '<div class="empty">Loading...</div>';
+
+  var deadline = GROUP_FINISH_DEADLINE;
+  var locked = groupFinishDeadlinePassed();
+  var diff = deadline.getTime() - Date.now();
+  var h = Math.floor(diff/3600000);
+  var days = Math.floor(h/24);
+  var deadlineStr = locked
+    ? '<span class="badge badge-red">🔒 Deadline passed (18 Jun 17:00 BST)</span>'
+    : '<span class="badge badge-grey">⏰ Deadline: Thu 18 Jun 17:00 BST' + (days>0?' ('+days+'d '+(h%24)+'h left)':h>0?' ('+h+'h left)':'') + '</span>';
+
+  // Load official results and player predictions from settings
+  var data = await sbGet('settings','');
+  var map = {};
+  (data||[]).forEach(function(r){ map[r.key] = r.value; });
+
+  var html = '<div class="info-box" style="margin-bottom:14px">' + deadlineStr +
+    '<div style="margin-top:6px;font-size:12px">Pick the top 2 teams in each group. <strong>1 point per correct position.</strong></div></div>';
+
+  GROUPS_LIST.forEach(function(group) {
+    var teams = getTeamsForGroup(group);
+    var gkey = group.replace(/ /g,'_');
+    var pred1key = 'gf_pred_1st_' + group + '_' + profile.name;
+    var pred2key = 'gf_pred_2nd_' + group + '_' + profile.name;
+    var off1 = map['gf_official_1st_'+group] || '';
+    var off2 = map['gf_official_2nd_'+group] || '';
+    var pred1 = map[pred1key] || '';
+    var pred2 = map[pred2key] || '';
+
+    // Calculate points
+    var pts1badge = '', pts2badge = '';
+    if(off1 && pred1) pts1badge = pred1===off1 ? '<span class="badge badge-gold" style="margin-left:6px">✓ 1pt</span>' : '<span class="badge badge-red" style="margin-left:6px">✗</span>';
+    if(off2 && pred2) pts2badge = pred2===off2 ? '<span class="badge badge-gold" style="margin-left:6px">✓ 1pt</span>' : '<span class="badge badge-red" style="margin-left:6px">✗</span>';
+
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:var(--shadow)">' +
+      '<div style="margin-bottom:10px"><span class="group-tag">' + group + '</span>' +
+      (off1 ? '<span style="font-size:11px;color:var(--green);margin-left:8px">Official: 1st '+flagImg(off1)+' '+off1+' · 2nd '+flagImg(off2)+' '+off2+'</span>' : '') +
+      '</div>' +
+      '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">' +
+        '<div style="flex:1;min-width:140px">' +
+          '<label class="field-label" style="margin-top:0">🥇 1st Place ' + pts1badge + '</label>' +
+          (locked ?
+            '<div style="font-weight:700;padding:8px 0">' + (pred1 ? flagImg(pred1)+' '+pred1 : '—') + '</div>' :
+            '<select id="gfp1-'+gkey+'" style="width:100%" data-group="'+group+'" data-pos="1st">' +
+              '<option value="">-- Select --</option>' +
+              teams.map(function(t){ return '<option value="'+t+'"'+(pred1===t?' selected':'')+'>'+t+'</option>'; }).join('') +
+            '</select>'
+          ) +
+        '</div>' +
+        '<div style="flex:1;min-width:140px">' +
+          '<label class="field-label" style="margin-top:0">🥈 2nd Place ' + pts2badge + '</label>' +
+          (locked ?
+            '<div style="font-weight:700;padding:8px 0">' + (pred2 ? flagImg(pred2)+' '+pred2 : '—') + '</div>' :
+            '<select id="gfp2-'+gkey+'" style="width:100%" data-group="'+group+'" data-pos="2nd">' +
+              '<option value="">-- Select --</option>' +
+              teams.map(function(t){ return '<option value="'+t+'"'+(pred2===t?' selected':'')+'>'+t+'</option>'; }).join('') +
+            '</select>'
+          ) +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  });
+
+  if(!locked) {
+    html += '<div style="margin-top:6px"><button type="button" class="btn btn-gold" id="btn-save-gf-preds">Save Group Finish Predictions ✓</button></div>';
+  }
+
+  el.innerHTML = html;
+
+  // Attach save button listener if not locked
+  if(!locked) {
+    document.getElementById('btn-save-gf-preds').addEventListener('click', saveGroupFinishPredictions);
+  }
+}
+
+async function saveGroupFinishPredictions() {
+  if(!profile.name){ toast('Save your profile first', true); return; }
+  if(!cfg.sbUrl){ toast('Connect Supabase first', true); return; }
+  if(groupFinishDeadlinePassed()){ toast('Deadline has passed — predictions are locked', true); return; }
+  var rows = [];
+  GROUPS_LIST.forEach(function(group) {
+    var key = group.replace(/ /g,'_');
+    var sel1 = document.getElementById('gfp1-'+key);
+    var sel2 = document.getElementById('gfp2-'+key);
+    if(sel1) rows.push({ key: 'gf_pred_1st_'+group+'_'+profile.name, value: sel1.value });
+    if(sel2) rows.push({ key: 'gf_pred_2nd_'+group+'_'+profile.name, value: sel2.value });
+  });
+  await sbUpsert('settings', rows, 'key');
+  toast('Group finish predictions saved ✅');
+}
+
+// ── Scoring for group finishes (called from leaderboard) ──
+function calcGroupFinishPts(settMap, playerName) {
+  var pts = 0;
+  var norm = function(t){ return (t||'').trim().toLowerCase(); };
+  GROUPS_LIST.forEach(function(group) {
+    var off1 = settMap['gf_official_1st_'+group] || '';
+    var off2 = settMap['gf_official_2nd_'+group] || '';
+    var pred1 = settMap['gf_pred_1st_'+group+'_'+playerName] || '';
+    var pred2 = settMap['gf_pred_2nd_'+group+'_'+playerName] || '';
+    if(off1 && pred1 && norm(pred1)===norm(off1)) pts += 1;
+    if(off2 && pred2 && norm(pred2)===norm(off2)) pts += 1;
+  });
+  return pts;
+}
+
 // TOAST
 function toast(msg,isError){var t=document.getElementById('toast');t.textContent=msg;t.style.background=isError?'#dc2626':'#16a34a';t.style.color='#fff';t.classList.add('show');setTimeout(function(){t.classList.remove('show');},2800);}
 
@@ -1302,7 +1507,11 @@ document.addEventListener('DOMContentLoaded',function(){
     btn.addEventListener('click',function(){
       document.querySelectorAll('#tabs-stage .tab-btn').forEach(function(b){b.classList.remove('active');});
       btn.classList.add('active');
-      loadMyPredictions();
+      if(btn.dataset.stage === 'Group Finishes') {
+        renderGroupFinishPredictions();
+      } else {
+        loadMyPredictions();
+      }
     });
   });
 
@@ -1332,6 +1541,7 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('btn-change-code').addEventListener('click',changeJoinCode);
   document.getElementById('btn-copy-code').addEventListener('click',copyJoinCode);
   document.getElementById('btn-export').addEventListener('click',exportData);
+  document.getElementById('btn-save-group-finishes').addEventListener('click',saveAllGroupFinishes);
   document.getElementById('new-code').addEventListener('input',function(){this.value=this.value.toUpperCase();});
   document.getElementById('btn-add-match').addEventListener('click',addKnockoutMatch);
   document.getElementById('btn-clear-preds').addEventListener('click',clearAllPredictions);

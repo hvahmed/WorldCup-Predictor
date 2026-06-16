@@ -368,6 +368,38 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
         <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Download a full JSON backup.</p>
         <button type="button" class="btn btn-outline" id="btn-export">Export JSON</button>
       </div>
+      <div class="card" style="grid-column:1/-1">
+        <div class="card-title">✏️ <span class="accent">Enter Picks</span> for a Player</div>
+        <div class="info-box">Use this to enter award picks, finalist predictions and group finish picks on behalf of a player who missed the deadline.</div>
+        <label class="field-label">Select Player</label>
+        <select id="proxy-player-select" style="max-width:280px;margin-bottom:14px">
+          <option value="">-- Select player --</option>
+        </select>
+        <button type="button" class="btn btn-dark btn-sm" id="btn-load-proxy-player">Load Their Picks</button>
+        <div id="proxy-picks-panel" style="display:none;margin-top:18px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:15px;letter-spacing:1px;margin-bottom:14px;color:var(--text)" id="proxy-player-label"></div>
+          <!-- Award picks -->
+          <div style="margin-bottom:16px">
+            <div class="card-title" style="font-size:15px;margin-bottom:10px">🏅 Award & Finalist Picks</div>
+            <div class="grid2">
+              <div><label class="field-label">🏆 Finalist 1</label><input type="text" id="proxy-aw-f1" placeholder="e.g. Brazil"></div>
+              <div><label class="field-label">🏆 Finalist 2</label><input type="text" id="proxy-aw-f2" placeholder="e.g. France"></div>
+              <div><label class="field-label">🥇 Champion</label><input type="text" id="proxy-aw-winner" placeholder="e.g. Brazil"></div>
+              <div><label class="field-label">👟 Golden Boot</label><input type="text" id="proxy-aw-boot" placeholder="e.g. Mbappé"></div>
+              <div><label class="field-label">⚽ Golden Ball</label><input type="text" id="proxy-aw-ball" placeholder="e.g. Messi"></div>
+              <div><label class="field-label">🧤 Golden Glove</label><input type="text" id="proxy-aw-glove" placeholder="e.g. Alisson"></div>
+              <div><label class="field-label">🌟 Best Young Player</label><input type="text" id="proxy-aw-young" placeholder="e.g. Yamal"></div>
+            </div>
+            <div style="margin-top:12px"><button type="button" class="btn btn-gold btn-sm" id="btn-save-proxy-awards">Save Award Picks</button></div>
+          </div>
+          <!-- Group finish picks -->
+          <div>
+            <div class="card-title" style="font-size:15px;margin-bottom:10px">🏁 Group Finish Picks</div>
+            <div id="proxy-gf-panel"></div>
+            <div style="margin-top:12px"><button type="button" class="btn btn-gold btn-sm" id="btn-save-proxy-gf">Save Group Finish Picks</button></div>
+          </div>
+        </div>
+      </div>
       <div class="card">
         <div class="card-title">➕ <span class="accent">Add</span> Knockout Match</div>
         <div class="info-box">Add Round of 32, QF, SF and Final fixtures as they are confirmed.</div>
@@ -1287,7 +1319,12 @@ async function savePointsAdj(playerName){
 // ADMIN
 function checkAdmin(){
   var pw=document.getElementById('admin-pw-input').value;
-  if(pw===cfg.adminPw){document.getElementById('admin-locked').style.display='none';document.getElementById('admin-unlocked').style.display='block';document.getElementById('current-code').value=cfg.joinCode||'WORLDCUP26';}
+  if(pw===cfg.adminPw){
+    document.getElementById('admin-locked').style.display='none';
+    document.getElementById('admin-unlocked').style.display='block';
+    document.getElementById('current-code').value=cfg.joinCode||'WORLDCUP26';
+    populateProxyPlayerSelect();
+  }
   else toast('Wrong password',true);
 }
 function changeAdminPw(){var pw=document.getElementById('new-admin-pw').value.trim();if(!pw) return;cfg.adminPw=pw;saveCfg();toast('Password updated ✅');}
@@ -1621,6 +1658,97 @@ async function showAwardOthers() {
   panelContent.innerHTML = html;
 }
 
+
+// ═══════════════════════════════════════════════════════
+// ADMIN PROXY — enter picks for another player
+// ═══════════════════════════════════════════════════════
+async function populateProxyPlayerSelect() {
+  var sel = document.getElementById('proxy-player-select');
+  if(!sel) return;
+  var players = await sbGet('players', '?order=name');
+  allPlayers = players || [];
+  sel.innerHTML = '<option value="">-- Select player --</option>' +
+    allPlayers.map(function(p){
+      return '<option value="'+p.name+'">'+p.name+'</option>';
+    }).join('');
+}
+
+async function loadProxyPlayerPicks() {
+  var playerName = document.getElementById('proxy-player-select').value;
+  if(!playerName){ toast('Select a player first', true); return; }
+
+  document.getElementById('proxy-player-label').textContent = 'Editing picks for: ' + playerName;
+  document.getElementById('proxy-picks-panel').style.display = 'block';
+
+  // Load their existing settings
+  var data = await sbGet('settings', '');
+  var map = {};
+  (data||[]).forEach(function(r){ map[r.key] = r.value; });
+
+  // Populate award fields
+  var awardKeys = ['f1','f2','winner','boot','ball','glove','young'];
+  awardKeys.forEach(function(k){
+    var el = document.getElementById('proxy-aw-'+k);
+    if(el) el.value = map['award_'+k+'_'+playerName] || '';
+  });
+
+  // Populate group finish fields
+  renderProxyGroupFinishes(playerName, map);
+}
+
+function renderProxyGroupFinishes(playerName, map) {
+  var el = document.getElementById('proxy-gf-panel');
+  if(!el) return;
+  var html = '<div class="grid2">';
+  GROUPS_LIST.forEach(function(group){
+    var teams = getTeamsForGroup(group);
+    var gkey = group.replace(/ /g,'_');
+    var pred1 = map['gf_pred_1st_'+group+'_'+playerName] || '';
+    var pred2 = map['gf_pred_2nd_'+group+'_'+playerName] || '';
+    html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px">' +
+      '<div style="font-weight:700;font-size:13px;margin-bottom:8px"><span class="group-tag">'+group+'</span></div>' +
+      '<label class="field-label" style="margin-top:0">🥇 1st</label>' +
+      '<select id="proxy-gf1-'+gkey+'" style="width:100%;margin-bottom:6px">' +
+        '<option value="">-- Select --</option>' +
+        teams.map(function(t){ return '<option value="'+t+'"'+(pred1===t?' selected':'')+'>'+t+'</option>'; }).join('') +
+      '</select>' +
+      '<label class="field-label">🥈 2nd</label>' +
+      '<select id="proxy-gf2-'+gkey+'" style="width:100%">' +
+        '<option value="">-- Select --</option>' +
+        teams.map(function(t){ return '<option value="'+t+'"'+(pred2===t?' selected':'')+'>'+t+'</option>'; }).join('') +
+      '</select>' +
+    '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function saveProxyAwards() {
+  var playerName = document.getElementById('proxy-player-select').value;
+  if(!playerName){ toast('Select a player first', true); return; }
+  var awardKeys = ['f1','f2','winner','boot','ball','glove','young'];
+  var rows = awardKeys.map(function(k){
+    return { key: 'award_'+k+'_'+playerName, value: document.getElementById('proxy-aw-'+k).value.trim() };
+  });
+  await sbUpsert('settings', rows, 'key');
+  toast('Award picks saved for ' + playerName + ' ✅');
+}
+
+async function saveProxyGroupFinishes() {
+  var playerName = document.getElementById('proxy-player-select').value;
+  if(!playerName){ toast('Select a player first', true); return; }
+  var rows = [];
+  GROUPS_LIST.forEach(function(group){
+    var gkey = group.replace(/ /g,'_');
+    var sel1 = document.getElementById('proxy-gf1-'+gkey);
+    var sel2 = document.getElementById('proxy-gf2-'+gkey);
+    if(sel1) rows.push({ key: 'gf_pred_1st_'+group+'_'+playerName, value: sel1.value });
+    if(sel2) rows.push({ key: 'gf_pred_2nd_'+group+'_'+playerName, value: sel2.value });
+  });
+  await sbUpsert('settings', rows, 'key');
+  toast('Group finish picks saved for ' + playerName + ' ✅');
+}
+
 // TOAST
 function toast(msg,isError){var t=document.getElementById('toast');t.textContent=msg;t.style.background=isError?'#dc2626':'#16a34a';t.style.color='#fff';t.classList.add('show');setTimeout(function(){t.classList.remove('show');},2800);}
 
@@ -1676,6 +1804,9 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('btn-change-code').addEventListener('click',changeJoinCode);
   document.getElementById('btn-copy-code').addEventListener('click',copyJoinCode);
   document.getElementById('btn-export').addEventListener('click',exportData);
+  document.getElementById('btn-load-proxy-player').addEventListener('click', loadProxyPlayerPicks);
+  document.getElementById('btn-save-proxy-awards').addEventListener('click', saveProxyAwards);
+  document.getElementById('btn-save-proxy-gf').addEventListener('click', saveProxyGroupFinishes);
   document.getElementById('btn-save-group-finishes').addEventListener('click',saveAllGroupFinishes);
   document.getElementById('new-code').addEventListener('input',function(){this.value=this.value.toUpperCase();});
   document.getElementById('btn-add-match').addEventListener('click',addKnockoutMatch);

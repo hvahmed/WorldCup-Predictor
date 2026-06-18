@@ -1339,7 +1339,7 @@ async function clearEverything(){if(!confirm('Clear ALL data? Cannot be undone.'
 // ═══════════════════════════════════════════════════════
 // GROUP FINISHES
 // ═══════════════════════════════════════════════════════
-const GROUP_FINISH_DEADLINE = new Date('2026-06-18T16:00:00Z'); // 18 Jun 17:00 BST = 16:00 UTC
+const GROUP_FINISH_DEADLINE = new Date('2026-06-21T17:00:00Z'); // 21 Jun 18:00 BST = 17:00 UTC
 const GROUPS_LIST = ['Group A','Group B','Group C','Group D','Group E','Group F','Group G','Group H','Group I','Group J','Group K','Group L'];
 
 function groupFinishDeadlinePassed(){ return Date.now() >= GROUP_FINISH_DEADLINE.getTime(); }
@@ -1428,7 +1428,7 @@ async function renderGroupFinishPredictions() {
   var days = Math.floor(h/24);
   var deadlineStr = locked
     ? '<span class="badge badge-red">🔒 Deadline passed (18 Jun 17:00 BST)</span>'
-    : '<span class="badge badge-grey">⏰ Deadline: Thu 18 Jun 17:00 BST' + (days>0?' ('+days+'d '+(h%24)+'h left)':h>0?' ('+h+'h left)':'') + '</span>';
+    : '<span class="badge badge-grey">⏰ Deadline: Sun 21 Jun 18:00 BST' + (days>0?' ('+days+'d '+(h%24)+'h left)':h>0?' ('+h+'h left)':'') + '</span>';
 
   // Load official results and player predictions from settings
   var data = await sbGet('settings','');

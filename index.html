@@ -314,9 +314,23 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
     <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px">🏅 Standings</div>
     <button type="button" class="btn btn-outline btn-sm" id="btn-refresh-lb">↻ Refresh</button>
   </div>
-  <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
-    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <div id="lb-content" style="min-width:400px"><div class="empty" style="padding:40px">Connect Supabase to see standings.</div></div>
+  <div class="tabs" id="tabs-lb">
+    <button type="button" class="tab-btn active" data-tab="tab-lb-standard">Standard</button>
+    <button type="button" class="tab-btn" data-tab="tab-lb-weighted">⚡ Weighted</button>
+  </div>
+  <div class="tab-pane active" id="tab-lb-standard">
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <div id="lb-content" style="min-width:400px"><div class="empty" style="padding:40px">Connect Supabase to see standings.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="tab-pane" id="tab-lb-weighted">
+    <div class="info-box">Points are multiplied by the match multiplier set by admin. A player multiplier can also be applied to help younger players. Admin sets both in the weighted table below.</div>
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <div id="lb-weighted-content" style="min-width:400px"><div class="empty" style="padding:40px">Loading...</div></div>
+      </div>
     </div>
   </div>
   <div class="card">
@@ -431,6 +445,14 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
           <option value="21:00 BST">21:00 BST</option>
           <option value="22:00 BST">22:00 BST</option>
           <option value="23:00 BST">23:00 BST</option>
+        </select>
+        <label class="field-label">⚡ Points Multiplier for this match</label>
+        <select id="add-multiplier">
+          <option value="1">1x (standard)</option>
+          <option value="2">2x</option>
+          <option value="3">3x</option>
+          <option value="4">4x</option>
+          <option value="5">5x</option>
         </select>
         <div style="margin-top:14px">
           <button type="button" class="btn btn-gold" id="btn-add-match">Add Match</button>
@@ -695,7 +717,12 @@ function showPage(pageId){
     renderSchedule(); loadOfficialData();
   }
   if(pageId==='predict'){ results={}; loadResults().then(function(){loadMyPredictions();}); }
-  if(pageId==='leaderboard'){ results={}; renderLeaderboard(); }
+  if(pageId==='leaderboard'){
+    results={};
+    renderLeaderboard();
+    // Reset to standard tab
+    showTab('tabs-lb','tab-lb-standard');
+  }
 }
 function showTab(tabsId,tabId){
   var wrap=document.getElementById(tabsId);
@@ -906,9 +933,10 @@ function addKnockoutMatch(){
   var away=document.getElementById('add-away').value.trim();
   var date=document.getElementById('add-date').value;
   var time=document.getElementById('add-time').value;
+  var multiplier=parseFloat(document.getElementById('add-multiplier').value)||1;
   if(!home||!away||!date){toast('Fill in all fields',true);return;}
   var id='ko_'+Date.now();
-  var match={id,group:stage,home,away,date,time};
+  var match={id,group:stage,home,away,date,time,multiplier};
   MATCHES.push(match); extraMatches.push(match);
   saveExtraMatches();
   document.getElementById('add-home').value='';
@@ -1749,6 +1777,152 @@ async function saveProxyGroupFinishes() {
   toast('Group finish picks saved for ' + playerName + ' ✅');
 }
 
+
+// ═══════════════════════════════════════════════════════
+// WEIGHTED STANDINGS
+// ═══════════════════════════════════════════════════════
+
+// Get match multiplier - stored in settings as match_mult_{matchId}
+// or in extraMatches if it's a knockout match
+function getMatchMultiplier(matchId) {
+  var m = MATCHES.find(function(x){ return x.id === matchId; });
+  if(m && m.multiplier) return parseFloat(m.multiplier);
+  return 1;
+}
+
+async function renderWeightedLeaderboard() {
+  var el = document.getElementById('lb-weighted-content');
+  if(!cfg.sbUrl){ el.innerHTML='<div class="empty" style="padding:40px">Connect Supabase in Setup.</div>'; return; }
+  el.innerHTML='<div class="empty" style="padding:40px">Loading...</div>';
+  await loadResults();
+  await loadOfficialData();
+  var players = await sbGet('players','?order=name');
+  var preds = await sbGet('predictions','');
+  var settings = await sbGet('settings','');
+  if(!players){ el.innerHTML='<div class="empty" style="padding:40px">No data.</div>'; return; }
+
+  var byPlayer={};
+  (preds||[]).forEach(function(p){ if(!byPlayer[p.player_name]) byPlayer[p.player_name]={}; byPlayer[p.player_name][p.match_id]=p; });
+  var settMap={};
+  (settings||[]).forEach(function(s){ settMap[s.key]=s.value; });
+  var norm=function(t){ return (t||'').trim().toLowerCase(); };
+  var ofSet=[norm(officialFinalists.f1),norm(officialFinalists.f2)].filter(Boolean);
+
+  // Load player multipliers from settings (pmult_{playerName})
+  var playerMultMap={};
+  Object.keys(settMap).forEach(function(k){ if(k.startsWith('pmult_')) playerMultMap[k.replace('pmult_','')]=parseFloat(settMap[k])||1; });
+
+  // Load match multipliers from settings (mmult_{matchId}) for group stage
+  var matchMultMap={};
+  Object.keys(settMap).forEach(function(k){ if(k.startsWith('mmult_')) matchMultMap[k.replace('mmult_','')]=parseFloat(settMap[k])||1; });
+
+  var rows = players.map(function(pl){
+    var wPts=0, perfect=0, partial=0, bonus=0;
+    MATCHES.forEach(function(m){
+      var r=results[m.id]; if(!r) return;
+      var pred=(byPlayer[pl.name]||{})[m.id]; if(!pred) return;
+      var p=calcPts({home:pred.home_score,away:pred.away_score,pen_winner:pred.pen_winner||null},r,m.group);
+      if(p===null) return;
+      // Match multiplier: check extraMatches first, then settings
+      var mm = matchMultMap[m.id] || getMatchMultiplier(m.id);
+      if(p===3){wPts+=3*mm;perfect++;}
+      else if(p===1){wPts+=1*mm;partial++;}
+    });
+    // Standard bonus (finalists, awards, group finishes) - not multiplied
+    var f1p=settMap['award_f1_'+pl.name]||'',f2p=settMap['award_f2_'+pl.name]||'',wp=settMap['award_winner_'+pl.name]||'';
+    if(ofSet.length&&f1p&&ofSet.includes(norm(f1p))) bonus+=5;
+    if(ofSet.length&&f2p&&ofSet.includes(norm(f2p))) bonus+=5;
+    if(officialFinalists.winner&&wp&&norm(wp)===norm(officialFinalists.winner)) bonus+=10;
+    ['boot','ball','glove','young'].forEach(function(k){ var off=settMap['official_'+k]||'',pred2=settMap['award_'+k+'_'+pl.name]||''; if(off&&pred2&&norm(off)===norm(pred2)) bonus+=3; });
+    var gfPts=calcGroupFinishPts(settMap,pl.name);
+    // Adjustment also multiplied by player multiplier
+    var adjMap2={}; Object.keys(settMap).forEach(function(k){ if(k.startsWith('adj_')) adjMap2[k.replace('adj_','')]=parseInt(settMap[k])||0; });
+    var adj=adjMap2[pl.name]||0;
+    // Player multiplier applies to match points + adj only
+    var pm=playerMultMap[pl.name]||1;
+    var total=Math.round(((wPts+adj)*pm + bonus + gfPts)*10)/10;
+    return{name:pl.name,total,wPts:Math.round(wPts*10)/10,bonus,gfPts,adj,pm,perfect,partial};
+  }).sort(function(a,b){return b.total-a.total;});
+
+  if(!rows.length){ el.innerHTML='<div class="empty" style="padding:40px">No players yet.</div>'; return; }
+
+  var adminMode=isAdmin();
+  // Build match multiplier editor for group stage matches (shown to admin only)
+  var mmEditorHtml = '';
+  if(adminMode){
+    mmEditorHtml = '<div style="padding:14px 16px;border-bottom:2px solid var(--border);background:var(--surface2)">' +
+      '<div style="font-size:12px;font-weight:700;letter-spacing:1px;color:var(--muted);margin-bottom:10px">⚡ MATCH MULTIPLIERS (click ✓ to save)</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px">' +
+      MATCHES.slice(0,10).map(function(m){
+        var cur = matchMultMap[m.id] || getMatchMultiplier(m.id);
+        return '<div style="display:flex;align-items:center;gap:4px;background:#fff;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px">' +
+          '<span style="font-family:sans-serif;font-weight:700;white-space:nowrap">'+m.home+' v '+m.away+'</span>' +
+          '<select id="mmult-'+m.id+'" style="width:60px;font-size:11px;padding:2px">' +
+            [1,1.5,2,2.5,3,4,5].map(function(v){ return '<option value="'+v+'"'+(cur==v?' selected':'')+'>'+v+'x</option>'; }).join('') +
+          '</select>' +
+          '<button type="button" class="btn btn-gold btn-sm" style="padding:2px 6px;font-size:10px" data-action="saveMatchMult" data-id="'+m.id+'">✓</button>' +
+        '</div>';
+      }).join('') +
+      '<button type="button" class="btn btn-outline btn-sm" id="btn-show-all-mmult">Show all matches</button>' +
+      '</div></div>';
+  }
+
+  el.innerHTML = mmEditorHtml +
+    '<table class="lb-table"><thead><tr>' +
+    '<th>#</th><th>Player</th><th>⭐ Wtd Pts</th><th>🏅 Bonus</th><th>🏁 Groups</th>' +
+    (adminMode?'<th>👶 Player Mult</th>':'<th>👶 Mult</th>') +
+    '<th>Total</th>' +
+    '</tr></thead><tbody>' +
+    rows.map(function(r,i){
+      var rc=i===0?'r1':i===1?'r2':i===2?'r3':'';
+      return '<tr>'+
+        '<td><span class="rank '+rc+'">'+(i+1)+'</span></td>'+
+        '<td><strong>'+flagImg(r.name)+' '+r.name+'</strong></td>'+
+        '<td style="color:var(--gold)">'+r.wPts+'</td>'+
+        '<td style="color:var(--blue)">+'+r.bonus+'</td>'+
+        '<td style="color:var(--green)">+'+r.gfPts+'</td>'+
+        (adminMode?
+          '<td><div style="display:flex;align-items:center;gap:4px">'+
+            '<select id="pmult-'+r.name.replace(/\s/g,'_')+'" style="width:65px;font-size:12px">'+
+              [1,1.25,1.5,1.75,2,2.5,3].map(function(v){ return '<option value="'+v+'"'+(r.pm==v?' selected':'')+'>'+v+'x</option>'; }).join('')+
+            '</select>'+
+            '<button type="button" class="btn btn-gold btn-sm" style="padding:3px 7px;font-size:10px" data-action="savePlayerMult" data-player="'+r.name+'">✓</button>'+
+          '</div></td>'
+          :
+          '<td style="color:var(--muted)">'+r.pm+'x</td>'
+        )+
+        '<td><span class="pts-big">'+r.total+'</span></td>'+
+      '</tr>';
+    }).join('')+
+    '</tbody></table>';
+}
+
+async function saveMatchMultiplier(matchId) {
+  var sel = document.getElementById('mmult-'+matchId);
+  if(!sel) return;
+  var val = parseFloat(sel.value)||1;
+  // Save to settings and update local match object
+  await sbUpsert('settings',{key:'mmult_'+matchId,value:String(val)},'key');
+  var m = MATCHES.find(function(x){return x.id===matchId;});
+  if(m) m.multiplier = val;
+  // If it's an extra match, save to extraMatches too
+  var em = extraMatches.find(function(x){return x.id===matchId;});
+  if(em){ em.multiplier=val; saveExtraMatches(); }
+  toast('Match multiplier saved: '+val+'x ✅');
+  renderWeightedLeaderboard();
+}
+
+async function savePlayerMultiplier(playerName) {
+  var inputId = 'pmult-'+playerName.replace(/\s/g,'_');
+  var sel = document.getElementById(inputId);
+  if(!sel){ toast('Could not find select for '+playerName,true); return; }
+  var val = parseFloat(sel.value)||1;
+  await fetch(cfg.sbUrl+'/rest/v1/settings?key=eq.'+encodeURIComponent('pmult_'+playerName),{method:'DELETE',headers:{apikey:cfg.sbKey,Authorization:'Bearer '+cfg.sbKey}});
+  var r = await fetch(cfg.sbUrl+'/rest/v1/settings',{method:'POST',headers:{'Content-Type':'application/json',apikey:cfg.sbKey,Authorization:'Bearer '+cfg.sbKey,Prefer:'return=minimal'},body:JSON.stringify({key:'pmult_'+playerName,value:String(val)})});
+  if(r.ok||r.status===201){ toast('Player multiplier saved: '+val+'x for '+playerName+' ✅'); renderWeightedLeaderboard(); }
+  else { var t=await r.text(); toast('❌ Failed: '+t.substring(0,60),true); }
+}
+
 // TOAST
 function toast(msg,isError){var t=document.getElementById('toast');t.textContent=msg;t.style.background=isError?'#dc2626':'#16a34a';t.style.color='#fff';t.classList.add('show');setTimeout(function(){t.classList.remove('show');},2800);}
 
@@ -1764,6 +1938,12 @@ document.addEventListener('DOMContentLoaded',function(){
   document.querySelectorAll('.nav-btn').forEach(function(btn){btn.addEventListener('click',function(){showPage(this.dataset.page);});});
 
   document.querySelectorAll('#tabs-matches .tab-btn').forEach(function(btn){btn.addEventListener('click',function(){showTab('tabs-matches',this.dataset.tab);});});
+  document.querySelectorAll('#tabs-lb .tab-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      showTab('tabs-lb',this.dataset.tab);
+      if(this.dataset.tab==='tab-lb-weighted') renderWeightedLeaderboard();
+    });
+  });
 
   document.querySelectorAll('#tabs-stage .tab-btn').forEach(function(btn){
     btn.addEventListener('click',function(){
@@ -1796,7 +1976,12 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('btn-skip-awards').addEventListener('click',closeAwardsModal);
   document.getElementById('btn-save-awards-modal').addEventListener('click',saveAwardPredictions);
 
-  document.getElementById('btn-refresh-lb').addEventListener('click',function(){results={};renderLeaderboard();});
+  document.getElementById('btn-refresh-lb').addEventListener('click',function(){
+    results={};
+    renderLeaderboard();
+    var activeTab = document.querySelector('#tabs-lb .tab-btn.active');
+    if(activeTab && activeTab.dataset.tab==='tab-lb-weighted') renderWeightedLeaderboard();
+  });
 
   document.getElementById('btn-check-admin').addEventListener('click',checkAdmin);
   document.getElementById('admin-pw-input').addEventListener('keydown',function(e){if(e.key==='Enter') checkAdmin();});
@@ -1828,6 +2013,8 @@ document.addEventListener('DOMContentLoaded',function(){
     if(action==='removeMatch') removeKnockoutMatch(btn.dataset.id);
     if(action==='saveAdj') savePointsAdj(btn.dataset.player);
     if(action==='showOthers') showOthersPicks(btn.dataset.id,btn.dataset.home,btn.dataset.away,btn.dataset.group);
+    if(action==='saveMatchMult') saveMatchMultiplier(btn.dataset.id);
+    if(action==='savePlayerMult') savePlayerMultiplier(btn.dataset.player);
   });
 });
 </script>

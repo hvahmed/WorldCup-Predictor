@@ -1950,8 +1950,14 @@ document.addEventListener('DOMContentLoaded',function(){
   document.querySelectorAll('#tabs-matches .tab-btn').forEach(function(btn){btn.addEventListener('click',function(){showTab('tabs-matches',this.dataset.tab);});});
   document.querySelectorAll('#tabs-lb .tab-btn').forEach(function(btn){
     btn.addEventListener('click',function(){
-      showTab('tabs-lb',this.dataset.tab);
-      if(this.dataset.tab==='tab-lb-weighted') renderWeightedLeaderboard();
+      // Manually toggle tab buttons
+      document.querySelectorAll('#tabs-lb .tab-btn').forEach(function(b){b.classList.remove('active');});
+      btn.classList.add('active');
+      // Manually toggle tab panes
+      document.getElementById('tab-lb-standard').classList.toggle('active', btn.dataset.tab==='tab-lb-standard');
+      document.getElementById('tab-lb-weighted').classList.toggle('active', btn.dataset.tab==='tab-lb-weighted');
+      // Render the right table
+      if(btn.dataset.tab==='tab-lb-weighted') renderWeightedLeaderboard();
     });
   });
 

@@ -1856,7 +1856,7 @@ async function renderWeightedLeaderboard() {
 
   el.innerHTML =
     '<table class="lb-table"><thead><tr>' +
-    '<th>#</th><th>Player</th><th>⚡ Wtd Pts</th><th>🏅 Bonus</th><th>🏁 Groups</th>' +
+    '<th>#</th><th>Player</th><th>⚡ Wtd Pts</th><th>🏅 Bonus</th><th>🏁 Groups</th><th>✏️ Adj</th>' +
     '<th>⚽ WCs Seen</th><th>✖ Multiplier</th>' +
     '<th>Total</th>' +
     '</tr></thead><tbody>' +
@@ -1870,6 +1870,7 @@ async function renderWeightedLeaderboard() {
         '<td style="color:var(--gold)">'+r.wPts+'</td>'+
         '<td style="color:var(--blue)">+'+r.bonus+'</td>'+
         '<td style="color:var(--green)">+'+r.gfPts+'</td>'+
+        '<td style="color:var(--muted)">'+(r.adj?(r.adj>0?'+':'')+r.adj:'0')+'</td>'+
         '<td>'+(adminMode?
           '<div style="display:flex;align-items:center;gap:4px">'+
             '<input type="number" min="0" max="22" step="1" id="wcs-'+r.name.replace(/\s/g,'_')+'" value="'+(r.wcs!==null?r.wcs:'')+'" placeholder="0-22" style="width:60px;font-size:13px;padding:4px;text-align:center">'+
@@ -1882,7 +1883,7 @@ async function renderWeightedLeaderboard() {
     }).join('')+
     '</tbody></table>'+
     '<div style="font-size:12px;color:var(--muted);padding:10px 14px;border-top:1px solid var(--border)">'+
-    'Formula: Points × [1 + (1 − WCs Seen ÷ 22)] &nbsp;|&nbsp; 0 WCs seen = 2x · 11 WCs = 1.5x · 22 WCs = 1x'+
+    'Formula: (Match Pts + Adj) × [1 + (1 − WCs Seen ÷ 22)] + Bonus + Groups &nbsp;|&nbsp; 0 WCs = 2x · 11 WCs = 1.5x · 22 WCs = 1x'+
     '</div>';
 }
 

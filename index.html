@@ -1846,7 +1846,7 @@ async function renderWeightedLeaderboard() {
     pm = Math.round(pm*1000)/1000; // round to 3dp
 
     // Apply formula: (match pts + adj) * player multiplier + bonuses
-    var total = Math.round(((wPts + adj) * pm + bonus + gfPts)*100)/100;
+    var total = Math.round(((wPts + adj + bonus + gfPts) * pm)*100)/100;
     return{name:pl.name,total,wPts:Math.round(wPts*100)/100,bonus,gfPts,adj,pm,wcs,perfect,partial};
   }).sort(function(a,b){return b.total-a.total;});
 
@@ -1883,7 +1883,7 @@ async function renderWeightedLeaderboard() {
     }).join('')+
     '</tbody></table>'+
     '<div style="font-size:12px;color:var(--muted);padding:10px 14px;border-top:1px solid var(--border)">'+
-    'Formula: (Match Pts + Adj) × [1 + (1 − WCs Seen ÷ 22)] + Bonus + Groups &nbsp;|&nbsp; 0 WCs = 2x · 11 WCs = 1.5x · 22 WCs = 1x'+
+    'Formula: (Match Pts + Adj + Bonus + Groups) × [1 + (1 − WCs Seen ÷ 22)] &nbsp;|&nbsp; 0 WCs = 2x · 11 WCs = 1.5x · 22 WCs = 1x'+
     '</div>';
 }
 

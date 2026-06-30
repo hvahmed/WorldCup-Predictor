@@ -1056,19 +1056,45 @@ function calcPts(pred,result,matchGroup){
   if(isNaN(ph)||isNaN(pa)) return null;
   var ko=isKnockoutStage(matchGroup||'');
   var exact=(ph===result.home&&pa===result.away);
+
+  // GROUP STAGE
   if(!ko){
     if(exact) return 3;
     if(outcome(ph,pa)===outcome(result.home,result.away)) return 1;
     return 0;
   }
+
+  // KNOCKOUT STAGE
+  var wentToPens = !!result.pen_winner;
+  var predDraw = (outcome(ph,pa)==='D');
+  var correctPenWinner = wentToPens && pred.pen_winner && pred.pen_winner===result.pen_winner;
+  var wrongPenWinner = wentToPens && pred.pen_winner && pred.pen_winner!==result.pen_winner;
+
+  // Exact score
   if(exact){
-    if(result.pen_winner&&pred.pen_winner&&pred.pen_winner===result.pen_winner) return 3;
-    return 3;
+    if(!wentToPens) return 3;                  // e.g. predicted 3-2, ended 3-2 in normal/AET
+    if(correctPenWinner) return 3;             // predicted 1-1 + correct pen winner
+    return 1;                                  // predicted 1-1 but wrong pen winner
   }
-  if(result.pen_winner){
-    if(pred.pen_winner&&pred.pen_winner===result.pen_winner) return 1;
+
+  // Not exact score — check outcome
+  if(wentToPens){
+    // Game went to pens
+    if(predDraw && correctPenWinner) return 1; // predicted draw + right pen winner
+    if(predDraw && wrongPenWinner) return 0;   // predicted draw but wrong pen winner
+    // Predicted outright winner (non-draw) — check if their predicted winner matches pen winner
+    if(!predDraw && pred.pen_winner === undefined || !predDraw){
+      // Check if predicted winner (home or away) matches actual pen winner
+      var predHomeWin = outcome(ph,pa) === 'H';
+      var homeWonPens = result.pen_winner && (result.pen_winner === result.home_team);
+      var awayWonPens = result.pen_winner && (result.pen_winner === result.away_team);
+      if(predHomeWin && homeWonPens) return 1; // predicted home win, home won pens
+      if(!predHomeWin && awayWonPens) return 1; // predicted away win, away won pens
+    }
     return 0;
   }
+
+  // No pens — FT or AET result
   if(outcome(ph,pa)===outcome(result.home,result.away)) return 1;
   return 0;
 }

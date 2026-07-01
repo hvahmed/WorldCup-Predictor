@@ -1985,23 +1985,17 @@ const MINI_TALLY_STAGES = ['Round of 32', 'Round of 16', 'Quarter-Final'];
 const MINI_TALLY_BONUS = 5;
 
 function calcMiniTallyBonuses(byPlayer, players, settMap) {
-  // Returns a map of playerName -> bonus points from mini tallies
   var bonusMap = {};
   players.forEach(function(pl){ bonusMap[pl.name] = 0; });
 
   MINI_TALLY_STAGES.forEach(function(stage) {
     var stageMatches = MATCHES.filter(function(m){ return m.group === stage; });
-    if(!stageMatches.length) return; // no matches in this stage yet
-
-    // Check if any results exist for this stage
+    if(!stageMatches.length) return;
     var hasResults = stageMatches.some(function(m){ return results[m.id]; });
     if(!hasResults) return;
-
-    // Check if all matches in stage have results (stage complete)
     var allComplete = stageMatches.every(function(m){ return results[m.id]; });
-    if(!allComplete) return; // don't award until stage is fully complete
+    if(!allComplete) return;
 
-    // Calculate points per player for this stage
     var stagePts = {};
     players.forEach(function(pl){
       var pts = 0;
@@ -2011,14 +2005,14 @@ function calcMiniTallyBonuses(byPlayer, players, settMap) {
         var p = calcPts({home:pred.home_score,away:pred.away_score,pen_winner:pred.pen_winner||null},r,m.group);
         if(p) pts += p;
       });
-      stagePts[pl.name] = pts;
+      // Include mini tally adjustment from settMap
+      var mtAdj = (settMap && settMap['mtadj_'+stage+'_'+pl.name]) ? parseInt(settMap['mtadj_'+stage+'_'+pl.name])||0 : 0;
+      stagePts[pl.name] = pts + mtAdj;
     });
 
-    // Find the max score
-    var maxPts = Math.max.apply(null, Object.values(stagePts));
-    if(maxPts === 0) return; // no one scored anything
+    var maxPts = Math.max.apply(null, Object.values(stagePts).concat([0]));
+    if(maxPts === 0) return;
 
-    // Award bonus to all players with max score
     players.forEach(function(pl){
       if(stagePts[pl.name] === maxPts) bonusMap[pl.name] += MINI_TALLY_BONUS;
     });
@@ -2027,8 +2021,26 @@ function calcMiniTallyBonuses(byPlayer, players, settMap) {
   return bonusMap;
 }
 
-function getMiniTallyTable(byPlayer, players) {
-  // Calculate stage points and winners for each stage
+function getMiniTallyTable(byPlayer, players, settMap, adminMode) {
+  // Load mini tally adjustments (mtadj_{stage}_{playerName})
+  var mtAdjMap = {};
+  if(settMap) {
+    Object.keys(settMap).forEach(function(k){
+      if(k.startsWith('mtadj_')) {
+        // key format: mtadj_Round of 32_PlayerName
+        var rest = k.replace('mtadj_', '');
+        MINI_TALLY_STAGES.forEach(function(stage){
+          if(rest.startsWith(stage + '_')) {
+            var playerName = rest.replace(stage + '_', '');
+            if(!mtAdjMap[stage]) mtAdjMap[stage] = {};
+            mtAdjMap[stage][playerName] = parseInt(settMap[k]) || 0;
+          }
+        });
+      }
+    });
+  }
+
+  // Calculate stage points
   var stageData = {};
   var anyStageActive = false;
 
@@ -2048,15 +2060,16 @@ function getMiniTallyTable(byPlayer, players) {
         var p = calcPts({home:pred.home_score,away:pred.away_score,pen_winner:pred.pen_winner||null},r,m.group);
         if(p) pts += p;
       });
-      stagePts[pl.name] = pts;
+      // Add mini tally adjustment for this stage
+      var adj = (mtAdjMap[stage] && mtAdjMap[stage][pl.name]) || 0;
+      stagePts[pl.name] = pts + adj;
     });
     var maxPts = Math.max.apply(null, Object.values(stagePts).concat([0]));
-    stageData[stage] = { pts: stagePts, maxPts: maxPts, complete: allComplete };
+    stageData[stage] = { pts: stagePts, maxPts: maxPts, complete: allComplete, adj: mtAdjMap[stage]||{} };
   });
 
   if(!anyStageActive) return '<div class="empty">No knockout matches played yet.</div>';
 
-  // Active stages only
   var activeStages = MINI_TALLY_STAGES.filter(function(s){ return stageData[s]; });
 
   // Sort players by total mini tally points
@@ -2066,13 +2079,13 @@ function getMiniTallyTable(byPlayer, players) {
     return bTotal - aTotal;
   });
 
-  var html = '<div style="overflow-x:auto"><table class="lb-table" style="min-width:400px"><thead><tr>' +
-    '<th>Player</th>';
-
+  // Build header
+  var html = '<div style="overflow-x:auto"><table class="lb-table" style="min-width:400px"><thead><tr><th>Player</th>';
   activeStages.forEach(function(stage){
     var d = stageData[stage];
     var short = stage === 'Round of 32' ? 'R32' : stage === 'Round of 16' ? 'R16' : 'QF';
     html += '<th>' + short + (d.complete ? ' 🏆' : ' ⏳') + '</th>';
+    if(adminMode) html += '<th style="font-size:9px">'+short+' Adj</th>';
   });
   html += '<th>Mini Bonus</th></tr></thead><tbody>';
 
@@ -2082,22 +2095,29 @@ function getMiniTallyTable(byPlayer, players) {
     activeStages.forEach(function(stage){
       var d = stageData[stage];
       var pts = d.pts[pl.name] || 0;
+      var adj = (d.adj && d.adj[pl.name]) || 0;
       var isWinner = d.complete && pts === d.maxPts && d.maxPts > 0;
       if(isWinner) totalMiniBonus += MINI_TALLY_BONUS;
+      var stageKey = stage.replace(/ /g,'_');
       cells += '<td style="'+(isWinner?'background:var(--gold-bg);font-weight:700':'')+'">'+
-        pts + (isWinner ? ' 🏆' : '') +
+        pts + (adj ? '<span style="font-size:10px;color:var(--muted)"> ('+( adj>0?'+':'')+adj+' adj)</span>' : '') +
+        (isWinner ? ' 🏆' : '') +
       '</td>';
+      if(adminMode){
+        cells += '<td><div style="display:flex;align-items:center;gap:3px">'+
+          '<input type="number" id="mtadj-'+stageKey+'-'+pl.name.replace(/\s/g,'_')+'" value="'+(adj||0)+'" style="width:48px;text-align:center;font-size:12px;padding:3px" placeholder="0">'+
+          '<button type="button" class="btn btn-gold btn-sm" style="padding:2px 5px;font-size:10px" data-action="saveMtAdj" data-stage="'+stage+'" data-player="'+pl.name+'">✓</button>'+
+        '</div></td>';
+      }
     });
-    html += '<tr>' +
-      '<td><strong>' + flagImg(pl.name) + ' ' + pl.name + '</strong></td>' +
-      cells +
-      '<td><strong style="color:var(--green)">' + (totalMiniBonus > 0 ? '+'+totalMiniBonus : '0') + '</strong></td>' +
+    html += '<tr>'+
+      '<td><strong>'+flagImg(pl.name)+' '+pl.name+'</strong></td>'+
+      cells+
+      '<td><strong style="color:var(--green)">'+(totalMiniBonus>0?'+'+totalMiniBonus:'0')+'</strong></td>'+
     '</tr>';
   });
 
   html += '</tbody></table></div>';
-
-  // Stage status legend
   html += '<div style="font-size:12px;color:var(--muted);margin-top:8px;padding:0 2px">';
   activeStages.forEach(function(stage){
     var d = stageData[stage];
@@ -2105,6 +2125,7 @@ function getMiniTallyTable(byPlayer, players) {
     html += short + ': ' + (d.complete ? '✅ Complete — +5pts awarded to winner(s)' : '⏳ In progress') + ' &nbsp;';
   });
   html += '</div>';
+  if(adminMode) html += '<div style="font-size:11px;color:var(--muted);margin-top:4px">✏️ Adj = adjustment for this round only. Does not duplicate main table adjustments.</div>';
 
   return html;
 }
@@ -2113,12 +2134,33 @@ function getMiniTallyTable(byPlayer, players) {
 async function renderMiniTallySection() {
   var el = document.getElementById('mini-tally-content');
   if(!el || !cfg.sbUrl) return;
+  el.innerHTML = '<div class="empty">Loading...</div>';
+  await loadResults();
   var players = await sbGet('players','?order=name');
   var preds = await sbGet('predictions','');
+  var settings = await sbGet('settings','');
   if(!players) return;
   var byPlayer = {};
   (preds||[]).forEach(function(p){ if(!byPlayer[p.player_name]) byPlayer[p.player_name]={}; byPlayer[p.player_name][p.match_id]=p; });
-  el.innerHTML = getMiniTallyTable(byPlayer, players);
+  var settMap = {};
+  (settings||[]).forEach(function(s){ settMap[s.key]=s.value; });
+  el.innerHTML = getMiniTallyTable(byPlayer, players, settMap, isAdmin());
+}
+
+
+async function saveMtAdj(stage, playerName) {
+  var stageKey = stage.replace(/ /g,'_');
+  var inputId = 'mtadj-'+stageKey+'-'+playerName.replace(/\s/g,'_');
+  var inp = document.getElementById(inputId);
+  if(!inp){ toast('Input not found', true); return; }
+  var val = parseInt(inp.value) || 0;
+  var key = 'mtadj_'+stage+'_'+playerName;
+  await fetch(cfg.sbUrl+'/rest/v1/settings?key=eq.'+encodeURIComponent(key),{method:'DELETE',headers:{apikey:cfg.sbKey,Authorization:'Bearer '+cfg.sbKey}});
+  if(val !== 0) {
+    await fetch(cfg.sbUrl+'/rest/v1/settings',{method:'POST',headers:{'Content-Type':'application/json',apikey:cfg.sbKey,Authorization:'Bearer '+cfg.sbKey,Prefer:'return=minimal'},body:JSON.stringify({key:key,value:String(val)})});
+  }
+  toast('Mini tally adj saved: '+(val>=0?'+':'')+val+' for '+playerName+' in '+stage+' ✅');
+  renderMiniTallySection();
 }
 
 // TOAST
@@ -2229,6 +2271,7 @@ document.addEventListener('DOMContentLoaded',function(){
     if(action==='saveAdj') savePointsAdj(btn.dataset.player);
     if(action==='showOthers') showOthersPicks(btn.dataset.id,btn.dataset.home,btn.dataset.away,btn.dataset.group);
     if(action==='saveMatchMult') saveMatchMultiplier(btn.dataset.id);
+    if(action==='saveMtAdj') saveMtAdj(btn.dataset.stage, btn.dataset.player);
     if(action==='saveWCS') saveWCS(btn.dataset.player);
   });
 });

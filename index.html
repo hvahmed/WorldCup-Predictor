@@ -317,6 +317,7 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
   <div class="tabs" id="tabs-lb">
     <button type="button" class="tab-btn active" data-tab="tab-lb-standard">Standard</button>
     <button type="button" class="tab-btn" data-tab="tab-lb-weighted">⚡ Weighted</button>
+    <button type="button" class="tab-btn" data-tab="tab-lb-mini">🏆 Round Tallies</button>
   </div>
   <div class="tab-pane active" id="tab-lb-standard">
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
@@ -333,12 +334,33 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,
       </div>
     </div>
   </div>
+  <div class="card" id="mini-tally-section" style="margin-bottom:16px">
+    <div class="card-title">🏆 <span class="accent">Round</span> Mini Tallies</div>
+    <div id="mini-tally-content"><div class="empty">No knockout matches played yet.</div></div>
+  </div>
+  <div class="tab-pane" id="tab-lb-mini" style="display:none">
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <div id="mini-tally-content" style="min-width:400px;padding:16px"><div class="empty">Loading...</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">📊 <span class="accent">Round Tally</span> Rules</div>
+      <div style="font-size:14px;line-height:2;color:var(--muted)">
+        <div>🏆 <strong style="color:var(--text)">+5 pts</strong> — Win the R32 mini tally (most points from Round of 32 matches)</div>
+        <div>🏆 <strong style="color:var(--text)">+5 pts</strong> — Win the R16 mini tally (most points from Round of 16 matches)</div>
+        <div>🏆 <strong style="color:var(--text)">+5 pts</strong> — Win the QF mini tally (most points from Quarter-Final matches)</div>
+        <div style="margin-top:8px;font-size:12px;color:var(--muted)">Bonus is awarded once all matches in a round are complete. Tied players all receive the +5pts. Points are visible during the round so you can track progress.</div>
+      </div>
+    </div>
+  </div>
   <div class="card">
     <div class="card-title">📊 <span class="accent">Scoring</span> Rules</div>
     <div style="font-size:14px;line-height:2;color:var(--muted)">
       <div>⭐ <strong style="color:var(--text)">3 pts</strong> — Exact score correct</div>
       <div>✅ <strong style="color:var(--text)">1 pt</strong> — Correct outcome (win/draw/loss)</div>
       <div>❌ <strong style="color:var(--text)">0 pts</strong> — Wrong outcome</div>
+      <div>🏆 <strong style="color:var(--text)">+5 pts</strong> — Win the R32 / R16 / QF mini tally (ties share the bonus)</div>
       <div>🏟️ <strong style="color:var(--text)">+5 pts</strong> — Each finalist correct</div>
       <div>🏆 <strong style="color:var(--text)">+10 pts</strong> — Champion correct</div>
       <div>👟⚽🧤🌟 <strong style="color:var(--text)">+3 pts each</strong> — Award winners correct</div>
@@ -720,8 +742,11 @@ function showPage(pageId){
   if(pageId==='leaderboard'){
     results={};
     renderLeaderboard();
-    // Reset to standard tab
-    showTab('tabs-lb','tab-lb-standard');
+    // Reset to standard tab - hide others
+    document.getElementById('tab-lb-standard').style.display='block';
+    document.getElementById('tab-lb-weighted').style.display='none';
+    document.getElementById('tab-lb-mini').style.display='none';
+    document.querySelectorAll('#tabs-lb .tab-btn').forEach(function(b){b.classList.toggle('active',b.dataset.tab==='tab-lb-standard');});
   }
 }
 function showTab(tabsId,tabId){
@@ -1876,6 +1901,17 @@ async function renderWeightedLeaderboard() {
     return{name:pl.name,total,wPts:Math.round(wPts*100)/100,bonus,gfPts,adj,pm,wcs,perfect,partial};
   }).sort(function(a,b){return b.total-a.total;});
 
+  // Apply mini tally bonuses (included before multiplier)
+  var miniBonus2 = calcMiniTallyBonuses(byPlayer, players, settMap);
+  rows.forEach(function(r){
+    var mb = miniBonus2[r.name] || 0;
+    r.miniBonus = mb;
+    r.bonus += mb;
+    // Recalculate total with mini bonus included before multiplier
+    r.total = Math.round(((r.wPts + r.adj + r.bonus + r.gfPts) * r.pm)*100)/100;
+  });
+  rows.sort(function(a,b){return b.total-a.total;});
+
   if(!rows.length){ el.innerHTML='<div class="empty" style="padding:40px">No players yet.</div>'; return; }
 
   var adminMode=isAdmin();
@@ -1941,6 +1977,150 @@ async function saveWCS(playerName) {
   else { var t=await r.text(); toast('❌ Failed: '+t.substring(0,60),true); }
 }
 
+
+// ═══════════════════════════════════════════════════════
+// MINI TALLY — Round winner bonus
+// ═══════════════════════════════════════════════════════
+const MINI_TALLY_STAGES = ['Round of 32', 'Round of 16', 'Quarter-Final'];
+const MINI_TALLY_BONUS = 5;
+
+function calcMiniTallyBonuses(byPlayer, players, settMap) {
+  // Returns a map of playerName -> bonus points from mini tallies
+  var bonusMap = {};
+  players.forEach(function(pl){ bonusMap[pl.name] = 0; });
+
+  MINI_TALLY_STAGES.forEach(function(stage) {
+    var stageMatches = MATCHES.filter(function(m){ return m.group === stage; });
+    if(!stageMatches.length) return; // no matches in this stage yet
+
+    // Check if any results exist for this stage
+    var hasResults = stageMatches.some(function(m){ return results[m.id]; });
+    if(!hasResults) return;
+
+    // Check if all matches in stage have results (stage complete)
+    var allComplete = stageMatches.every(function(m){ return results[m.id]; });
+    if(!allComplete) return; // don't award until stage is fully complete
+
+    // Calculate points per player for this stage
+    var stagePts = {};
+    players.forEach(function(pl){
+      var pts = 0;
+      stageMatches.forEach(function(m){
+        var r = results[m.id]; if(!r) return;
+        var pred = (byPlayer[pl.name]||{})[m.id]; if(!pred) return;
+        var p = calcPts({home:pred.home_score,away:pred.away_score,pen_winner:pred.pen_winner||null},r,m.group);
+        if(p) pts += p;
+      });
+      stagePts[pl.name] = pts;
+    });
+
+    // Find the max score
+    var maxPts = Math.max.apply(null, Object.values(stagePts));
+    if(maxPts === 0) return; // no one scored anything
+
+    // Award bonus to all players with max score
+    players.forEach(function(pl){
+      if(stagePts[pl.name] === maxPts) bonusMap[pl.name] += MINI_TALLY_BONUS;
+    });
+  });
+
+  return bonusMap;
+}
+
+function getMiniTallyTable(byPlayer, players) {
+  // Calculate stage points and winners for each stage
+  var stageData = {};
+  var anyStageActive = false;
+
+  MINI_TALLY_STAGES.forEach(function(stage){
+    var stageMatches = MATCHES.filter(function(m){ return m.group === stage; });
+    if(!stageMatches.length) return;
+    var hasResults = stageMatches.some(function(m){ return results[m.id]; });
+    if(!hasResults) return;
+    anyStageActive = true;
+    var allComplete = stageMatches.every(function(m){ return results[m.id]; });
+    var stagePts = {};
+    players.forEach(function(pl){
+      var pts = 0;
+      stageMatches.forEach(function(m){
+        var r = results[m.id]; if(!r) return;
+        var pred = (byPlayer[pl.name]||{})[m.id]; if(!pred) return;
+        var p = calcPts({home:pred.home_score,away:pred.away_score,pen_winner:pred.pen_winner||null},r,m.group);
+        if(p) pts += p;
+      });
+      stagePts[pl.name] = pts;
+    });
+    var maxPts = Math.max.apply(null, Object.values(stagePts).concat([0]));
+    stageData[stage] = { pts: stagePts, maxPts: maxPts, complete: allComplete };
+  });
+
+  if(!anyStageActive) return '<div class="empty">No knockout matches played yet.</div>';
+
+  // Active stages only
+  var activeStages = MINI_TALLY_STAGES.filter(function(s){ return stageData[s]; });
+
+  // Sort players by total mini tally points
+  var sortedPlayers = players.slice().sort(function(a, b){
+    var aTotal = activeStages.reduce(function(sum, s){ return sum + (stageData[s].pts[a.name]||0); }, 0);
+    var bTotal = activeStages.reduce(function(sum, s){ return sum + (stageData[s].pts[b.name]||0); }, 0);
+    return bTotal - aTotal;
+  });
+
+  var html = '<div style="overflow-x:auto"><table class="lb-table" style="min-width:400px"><thead><tr>' +
+    '<th>Player</th>';
+
+  activeStages.forEach(function(stage){
+    var d = stageData[stage];
+    var short = stage === 'Round of 32' ? 'R32' : stage === 'Round of 16' ? 'R16' : 'QF';
+    html += '<th>' + short + (d.complete ? ' 🏆' : ' ⏳') + '</th>';
+  });
+  html += '<th>Mini Bonus</th></tr></thead><tbody>';
+
+  sortedPlayers.forEach(function(pl){
+    var totalMiniBonus = 0;
+    var cells = '';
+    activeStages.forEach(function(stage){
+      var d = stageData[stage];
+      var pts = d.pts[pl.name] || 0;
+      var isWinner = d.complete && pts === d.maxPts && d.maxPts > 0;
+      if(isWinner) totalMiniBonus += MINI_TALLY_BONUS;
+      cells += '<td style="'+(isWinner?'background:var(--gold-bg);font-weight:700':'')+'">'+
+        pts + (isWinner ? ' 🏆' : '') +
+      '</td>';
+    });
+    html += '<tr>' +
+      '<td><strong>' + flagImg(pl.name) + ' ' + pl.name + '</strong></td>' +
+      cells +
+      '<td><strong style="color:var(--green)">' + (totalMiniBonus > 0 ? '+'+totalMiniBonus : '0') + '</strong></td>' +
+    '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+
+  // Stage status legend
+  html += '<div style="font-size:12px;color:var(--muted);margin-top:8px;padding:0 2px">';
+  activeStages.forEach(function(stage){
+    var d = stageData[stage];
+    var short = stage === 'Round of 32' ? 'R32' : stage === 'Round of 16' ? 'R16' : 'QF';
+    html += short + ': ' + (d.complete ? '✅ Complete — +5pts awarded to winner(s)' : '⏳ In progress') + ' &nbsp;';
+  });
+  html += '</div>';
+
+  return html;
+}
+
+
+async function renderMiniTallySection() {
+  var el = document.getElementById('mini-tally-content');
+  if(!el || !cfg.sbUrl) return;
+  var players = await sbGet('players','?order=name');
+  var preds = await sbGet('predictions','');
+  if(!players) return;
+  var byPlayer = {};
+  (preds||[]).forEach(function(p){ if(!byPlayer[p.player_name]) byPlayer[p.player_name]={}; byPlayer[p.player_name][p.match_id]=p; });
+  el.innerHTML = getMiniTallyTable(byPlayer, players);
+}
+
 // TOAST
 function toast(msg,isError){var t=document.getElementById('toast');t.textContent=msg;t.style.background=isError?'#dc2626':'#16a34a';t.style.color='#fff';t.classList.add('show');setTimeout(function(){t.classList.remove('show');},2800);}
 
@@ -1958,18 +2138,21 @@ document.addEventListener('DOMContentLoaded',function(){
   document.querySelectorAll('#tabs-matches .tab-btn').forEach(function(btn){btn.addEventListener('click',function(){showTab('tabs-matches',this.dataset.tab);});});
   document.querySelectorAll('#tabs-lb .tab-btn').forEach(function(btn){
     btn.addEventListener('click',function(){
-      // Toggle active on buttons
       document.querySelectorAll('#tabs-lb .tab-btn').forEach(function(b){b.classList.remove('active');});
       btn.classList.add('active');
-      // Use explicit display style - more reliable than CSS class
       var std = document.getElementById('tab-lb-standard');
       var wtd = document.getElementById('tab-lb-weighted');
+      var mini = document.getElementById('tab-lb-mini');
+      std.style.display = 'none';
+      wtd.style.display = 'none';
+      mini.style.display = 'none';
       if(btn.dataset.tab === 'tab-lb-weighted'){
-        std.style.display = 'none';
         wtd.style.display = 'block';
         renderWeightedLeaderboard();
+      } else if(btn.dataset.tab === 'tab-lb-mini'){
+        mini.style.display = 'block';
+        renderMiniTallySection();
       } else {
-        wtd.style.display = 'none';
         std.style.display = 'block';
         renderLeaderboard();
       }
@@ -2009,9 +2192,10 @@ document.addEventListener('DOMContentLoaded',function(){
 
   document.getElementById('btn-refresh-lb').addEventListener('click',function(){
     results={};
-    renderLeaderboard();
     var activeTab = document.querySelector('#tabs-lb .tab-btn.active');
-    if(activeTab && activeTab.dataset.tab==='tab-lb-weighted') renderWeightedLeaderboard();
+    if(!activeTab || activeTab.dataset.tab==='tab-lb-standard') renderLeaderboard();
+    else if(activeTab.dataset.tab==='tab-lb-weighted') renderWeightedLeaderboard();
+    else if(activeTab.dataset.tab==='tab-lb-mini') renderMiniTallySection();
   });
 
   document.getElementById('btn-check-admin').addEventListener('click',checkAdmin);

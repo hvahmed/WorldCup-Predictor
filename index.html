@@ -1117,6 +1117,13 @@ function calcPts(pred,result,matchGroup){
 
   // No pens — FT or AET result
   if(outcome(ph,pa)===outcome(result.home,result.away)) return 1;
+  // Predicted a draw with a pen winner — check if their pen winner matches the actual winner
+  if(predDraw && pred.pen_winner) {
+    var actualWinner = outcome(result.home, result.away); // 'H' or 'A'
+    var predWinnerIsHome = pred.pen_winner === result.home_team;
+    if(actualWinner === 'H' && predWinnerIsHome) return 1;
+    if(actualWinner === 'A' && !predWinnerIsHome) return 1;
+  }
   return 0;
 }
 function ptsBadge(pts){

@@ -1325,6 +1325,7 @@ async function renderLeaderboard(){
   var el=document.getElementById('lb-content');
   if(!cfg.sbUrl){el.innerHTML='<div class="empty" style="padding:40px">Connect Supabase in Setup.</div>';return;}
   el.innerHTML='<div class="empty" style="padding:40px">Loading...</div>';
+  await loadExtraMatches();
   await loadResults();
   await loadOfficialData();
   var players=await sbGet('players','?order=name');
@@ -1858,6 +1859,7 @@ async function renderWeightedLeaderboard() {
   var el = document.getElementById('lb-weighted-content');
   if(!cfg.sbUrl){ el.innerHTML='<div class="empty" style="padding:40px">Connect Supabase in Setup.</div>'; return; }
   el.innerHTML='<div class="empty" style="padding:40px">Loading...</div>';
+  await loadExtraMatches();
   await loadResults();
   await loadOfficialData();
   var players = await sbGet('players','?order=name');

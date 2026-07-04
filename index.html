@@ -1362,6 +1362,16 @@ async function renderLeaderboard(){
     return{name:pl.name,total:pts+bonus+gfPts+adj,pts,bonus,gfPts,adj,perfect,partial};
   }).sort(function(a,b){return b.total-a.total;});
 
+  // Apply mini tally bonuses to standard leaderboard
+  var miniBonus = calcMiniTallyBonuses(byPlayer, players, settMap);
+  rows.forEach(function(r){
+    var mb = miniBonus[r.name] || 0;
+    r.miniBonus = mb;
+    r.bonus += mb;
+    r.total += mb;
+  });
+  rows.sort(function(a,b){return b.total-a.total;});
+
   if(!rows.length){el.innerHTML='<div class="empty" style="padding:40px">No players yet.</div>';return;}
   var adminMode=isAdmin();
   el.innerHTML='<table class="lb-table"><thead><tr><th>#</th><th>Player</th><th>⭐ Perfect</th><th>✅ Outcome</th><th>🏅 Bonus</th><th>🏁 Groups</th>'+(adminMode?'<th>✏️ Adj</th>':'')+'<th>Points</th></tr></thead><tbody>'+

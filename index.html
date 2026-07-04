@@ -1365,11 +1365,6 @@ async function renderLeaderboard(){
 
   // Apply mini tally bonuses to standard leaderboard
   var miniBonus = calcMiniTallyBonuses(byPlayer, players, settMap);
-  console.log('Mini bonus map:', JSON.stringify(miniBonus));
-  console.log('MATCHES with Round of 32:', MATCHES.filter(function(m){return m.group==='Round of 32';}).length);
-  console.log('Results keys:', Object.keys(results).length);
-  var r32matches = MATCHES.filter(function(m){return m.group==='Round of 32';});
-  console.log('R32 all complete:', r32matches.every(function(m){return !!results[m.id];}));
   rows.forEach(function(r){
     var mb = miniBonus[r.name] || 0;
     r.miniBonus = mb;
